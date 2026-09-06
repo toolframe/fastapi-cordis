@@ -54,7 +54,7 @@ def resolve_provider(
         ):
             raise DependencyError(f"Incompatible contract for service {name!r}")
         return provider
-    raise UnknownPlugin(qualify(scope, name))
+    raise UnknownPlugin(next(candidates(scope, name)))
 
 
 @dataclass(frozen=True)
@@ -83,8 +83,8 @@ def build_graph(plugins: dict[str, Plugin]) -> DependencyGraph:
                 resolved.append(
                     resolve_provider(providers, plugins, reference, plugin.scope)
                 )
-            except UnknownPlugin:
-                absent.append(qualify(plugin.scope, reference_name(reference)))
+            except UnknownPlugin as error:
+                absent.append(error.args[0])
         dependencies[name] = tuple(dict.fromkeys(resolved))
         missing[name] = tuple(dict.fromkeys(absent))
 

@@ -32,6 +32,24 @@ def consumer(scope, *, managed=True):
 
 
 class ServiceScopeTests(IsolatedAsyncioTestCase):
+    async def test_missing_explicit_paths_report_the_actual_provider_location(self):
+        manager = PluginManager(
+            [
+                Plugin(
+                    "consumer",
+                    lambda ctx: (ctx.require("/root"), ctx.require("shared/value")),
+                    requires=("/root", "shared/value"),
+                    scope="work.a",
+                )
+            ]
+        )
+        async with manager.lifespan():
+            assert manager.snapshot()[0]["blockedBy"] == ["root", "shared/value"]
+            await manager.register(Plugin("root", lambda ctx: 1))
+            await manager.register(Plugin("value", lambda ctx: 2, scope="shared"))
+            with manager.lease("work.a/consumer") as value:
+                assert value == (1, 2)
+
     async def test_plugin_can_publish_multiple_independent_capabilities(self):
         contexts = []
 
