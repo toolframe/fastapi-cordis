@@ -109,6 +109,13 @@ writes for local experimentation:
 uv run --with uvicorn uvicorn examples.app:app --host 127.0.0.1
 ```
 
+For a serverless example of late registration, typed events, owned resources,
+configuration previews, and scoped provider replacement:
+
+```sh
+uv run python examples/reactive.py
+```
+
 ## Runtime management
 
 Use `install(app, manager, management=True)` to enable mutation routes. The host
