@@ -11,6 +11,7 @@ from ._runtime import (
     PluginUnavailable,
     UnknownPlugin,
 )
+from .fastapi import install, plugin_router, service
 
 __version__ = "0.1.0"
 __all__ = [
@@ -23,4 +24,7 @@ __all__ = [
     "PluginManager",
     "PluginUnavailable",
     "UnknownPlugin",
+    "install",
+    "plugin_router",
+    "service",
 ]
