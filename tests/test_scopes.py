@@ -273,6 +273,67 @@ class ScopeTests(IsolatedAsyncioTestCase):
         await scope.task(worker())
         await scope.aclose()
 
+    async def test_child_work_cannot_close_an_ancestor_scope(self):
+        async with EffectScope() as scope:
+            child = scope.scope().scope()
+
+            async def check():
+                with pytest.raises(PluginError, match="own scope"):
+                    await scope.aclose()
+
+            await child.task(check())
+            await child.on_dispose(check)()
+
+            @asynccontextmanager
+            async def resource():
+                await check()
+                yield object()
+
+            await child.enter_async_context(resource())
+
+    async def test_late_acquisition_cannot_wait_on_manager_disposal(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        closed = []
+        contexts = []
+        manager = PluginManager([Plugin("worker", contexts.append)])
+
+        @asynccontextmanager
+        async def resource():
+            entered.set()
+            await release.wait()
+            with pytest.raises(PluginError, match="during disposal"):
+                await manager.close()
+            try:
+                yield object()
+            finally:
+                closed.append(True)
+
+        await manager.start()
+        acquiring = asyncio.create_task(contexts[0].enter_async_context(resource()))
+        await entered.wait()
+        stopping = asyncio.create_task(manager.close())
+        async with asyncio.timeout(1):
+            while manager.snapshot()[0]["state"] != "stopped":
+                await asyncio.sleep(0)
+            release.set()
+            with pytest.raises(PluginError, match="closed during"):
+                await acquiring
+            await stopping
+        assert closed == [True]
+
+    async def test_early_disposer_cannot_stop_its_own_plugin(self):
+        contexts = []
+        manager = PluginManager([Plugin("worker", contexts.append)])
+        async with manager.lifespan():
+
+            async def cleanup():
+                with pytest.raises(PluginError, match="own plugin"):
+                    await manager.disable("worker")
+
+            await contexts[0].on_dispose(cleanup)()
+            assert manager.snapshot()[0]["state"] == "active"
+
     async def test_owned_task_cannot_await_its_own_plugin_stop(self):
         ready = asyncio.Event()
         done = asyncio.Event()

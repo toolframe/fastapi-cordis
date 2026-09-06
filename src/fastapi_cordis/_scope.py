@@ -49,7 +49,7 @@ class _Disposer:
                 if inspect.isawaitable(result):
                     await result
 
-            self.task = asyncio.create_task(run())
+            self.task = self.scope._spawn(run())
 
             def finished(task: asyncio.Task[None]) -> None:
                 if not task.cancelled() and task.exception() is None:
@@ -100,6 +100,15 @@ class EffectScope:
         self._check_loop()
         if not self._is_open():
             raise PluginError("Cannot create resources in a closed effect scope")
+
+    def _spawn(
+        self, coroutine: Coroutine[Any, Any, T], *, name: str | None = None
+    ) -> asyncio.Task[T]:
+        token = _OWNER.set(self._owner)
+        try:
+            return asyncio.create_task(coroutine, name=name)
+        finally:
+            _OWNER.reset(token)
 
     @property
     def task_count(self) -> int:
@@ -162,7 +171,7 @@ class EffectScope:
             self.on_dispose(resource.__aexit__, None, None, None)
             return value
 
-        task = asyncio.create_task(acquire())
+        task = self._spawn(acquire())
         self._acquisitions.add(task)
 
         def finished(task: asyncio.Task[Any]) -> None:
@@ -179,11 +188,7 @@ class EffectScope:
         """Start an owned task; close cancels and joins it before resources exit."""
         try:
             self._check_open()
-            token = _OWNER.set(self._owner)
-            try:
-                task = asyncio.create_task(coroutine, name=name)
-            finally:
-                _OWNER.reset(token)
+            task = self._spawn(coroutine, name=name)
         except BaseException:
             if inspect.iscoroutine(coroutine):
                 coroutine.close()
@@ -233,15 +238,19 @@ class EffectScope:
         if self._parent is not None:
             self._parent._children.pop(self, None)
 
+    def _owns_task(self, task: asyncio.Task[Any]) -> bool:
+        return (
+            task in self._tasks
+            or task in self._acquisitions
+            or task is self._closing
+            or any(task is dispose.task for dispose in self._cleanups)
+            or any(child._owns_task(task) for child in self._children)
+        )
+
     async def aclose(self) -> None:
         self._check_loop()
         current = asyncio.current_task()
-        if (
-            current in self._tasks
-            or current in self._acquisitions
-            or current is self._closing
-            or any(current is dispose.task for dispose in self._cleanups)
-        ):
+        if current is not None and self._owns_task(current):
             raise PluginError("An owned task or cleanup cannot close its own scope")
         if self._closing is None:
             self._accepting = False

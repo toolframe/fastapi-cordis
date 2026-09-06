@@ -167,6 +167,9 @@ when their scope closes; they are not silently abandoned.
 | `ctx.scope()` | Create a child `EffectScope` for resources that can close together |
 
 The child scope has the same helpers and can be closed with `await child.aclose()`.
+Owned tasks, acquisitions, and cleanup callbacks cannot close their own scope or
+an ancestor scope, or await a manager operation that stops their owning plugin.
+These calls raise `PluginError` because teardown would wait for that same work.
 Parent close also closes children before the parent's resources. Resource scopes
 own cleanup; they do not select different service providers. `EffectScope` can
 also be used independently as an async context manager.
