@@ -50,8 +50,9 @@ the runtime raises `PluginUnavailable`.
 Do not keep the value after releasing its lease. In a synchronous worker, acquire
 the lease inside the worker function. If an HTTP request times out while its
 thread continues running, that thread must retain the resource until it finishes.
-Background tasks need their own lease or explicit cancellation and completion
-managed by the owning plugin's cleanup.
+Background tasks started with `ctx.task()` are cancelled and joined during their
+owner's cleanup, while declared dependencies are still alive. Other background
+tasks need their own lease or explicit cancellation and completion callbacks.
 
 Do not stop or reconfigure a service while holding a lease on the affected group
 in the same task: that operation would wait for the lease you still hold.
@@ -96,6 +97,11 @@ receive the underlying exceptions.
 `DrainTimeout` is raised, previous states are restored, and that drain operation
 disposes no resources. This also applies to shutdown: finish outstanding work and
 call `close()` again. A timeout does not forcibly close a resource still in use.
+
+Owned tasks and child resource scopes close before plugin resources; registered
+resource callbacks are attempted in reverse order even when another callback
+fails. Task and cleanup failures are grouped. See the
+[resource helpers](plugins.md#register-cleanup-as-resources-are-acquired).
 
 The drain timeout does not bound setup or cleanup. Callbacks must cooperate with
 asyncio; the runtime cannot forcibly terminate blocked Python code. When a caller

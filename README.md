@@ -16,6 +16,7 @@ implementation, not an official port. It does not run JavaScript Cordis plugins.
 
 - Explicit plugin definitions and optional Pydantic configuration validation.
 - Dependency-ordered startup and reverse-order cleanup, including failed setup.
+- Owned resource scopes, context managers, and cancellable background tasks.
 - Runtime enable, disable, and configuration replacement.
 - Service leases that protect resources and their dependencies during async or
   worker-thread calls.

@@ -11,6 +11,7 @@ from ._runtime import (
     PluginUnavailable,
     UnknownPlugin,
 )
+from ._scope import EffectScope
 from .fastapi import install, plugin_router, service
 
 __version__ = "0.1.0"
@@ -18,6 +19,7 @@ __all__ = [
     "ConfigurationError",
     "DependencyError",
     "DrainTimeout",
+    "EffectScope",
     "Plugin",
     "PluginContext",
     "PluginError",

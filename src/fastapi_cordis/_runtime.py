@@ -9,38 +9,33 @@ import json
 import math
 import re
 import threading
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
+from contextlib import (
+    AbstractAsyncContextManager,
+    AbstractContextManager,
+    asynccontextmanager,
+    contextmanager,
+)
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
+from ._errors import (
+    ConfigurationError,
+    DependencyError,
+    DrainTimeout,
+    PluginError,
+    PluginUnavailable,
+    UnknownPlugin,
+)
+from ._scope import EffectScope
 
-class PluginError(RuntimeError):
-    """A plugin operation could not complete."""
-
-
-class UnknownPlugin(PluginError):
-    pass
-
-
-class ConfigurationError(PluginError, ValueError):
-    """Configuration was rejected before changing any running services."""
-
-
-class DependencyError(PluginError):
-    pass
-
-
-class DrainTimeout(PluginError):
-    """Work is still using a service; its resources have NOT been disposed."""
-
-
-class PluginUnavailable(PluginError):
-    def __init__(self, name: str) -> None:
-        self.name = name
-        super().__init__(f"Plugin {name!r} is not accepting work")
+T = TypeVar("T")
+_MUTATING: ContextVar[tuple[Any, object] | None] = ContextVar(
+    "cordis_mutation", default=None
+)
 
 
 @dataclass(frozen=True)
@@ -59,7 +54,7 @@ class Plugin:
 
 class PluginContext:
     def __init__(
-        self, manager: PluginManager, plugin: Plugin, config: Any, stack: AsyncExitStack
+        self, manager: PluginManager, plugin: Plugin, config: Any, stack: EffectScope
     ) -> None:
         self.name = plugin.name
         self.config = config
@@ -80,17 +75,24 @@ class PluginContext:
 
     def on_dispose(
         self, callback: Callable[..., Any], *args: Any, **kwargs: Any
-    ) -> None:
-        """Register sync or async cleanup immediately after acquiring a resource."""
-        if not self._accepting:
-            raise PluginError("Cleanup must be registered during setup")
+    ) -> Callable[[], Coroutine[Any, Any, None]]:
+        """Own cleanup throughout the plugin's current lifetime."""
+        return self._stack.on_dispose(callback, *args, **kwargs)
 
-        async def cleanup() -> None:
-            result = callback(*args, **kwargs)
-            if inspect.isawaitable(result):
-                await result
+    def effect(self, register: Callable[[], Callable[[], Any]]):
+        return self._stack.effect(register)
 
-        self._stack.push_async_callback(cleanup)
+    def enter_context(self, resource: AbstractContextManager[T]) -> T:
+        return self._stack.enter_context(resource)
+
+    async def enter_async_context(self, resource: AbstractAsyncContextManager[T]) -> T:
+        return await self._stack.enter_async_context(resource)
+
+    def task(self, coroutine: Coroutine[Any, Any, T], *, name: str | None = None):
+        return self._stack.task(coroutine, name=name)
+
+    def scope(self) -> EffectScope:
+        return self._stack.scope()
 
 
 class PluginManager:
@@ -113,13 +115,14 @@ class PluginManager:
         self._state: dict[str, str] = {}
         self._errors: dict[str, str | None] = {}
         self._values: dict[str, Any] = {}
-        self._stacks: dict[str, AsyncExitStack] = {}
+        self._stacks: dict[str, EffectScope] = {}
         self._counts: dict[str, int] = {}
         self._guard = threading.RLock()
         self._lock = asyncio.Lock()
         self._changed = asyncio.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = False
+        self._operation_token: object | None = None
         for plugin in plugins:
             if not isinstance(plugin, Plugin):
                 raise TypeError("Expected Plugin definitions")
@@ -245,6 +248,11 @@ class PluginManager:
         return plugin
 
     async def _atomic(self, operation: Callable[[], Any]) -> Any:
+        owner = _MUTATING.get()
+        if owner is not None and owner[0] is self and owner[1] is self._operation_token:
+            raise PluginError(
+                "Lifecycle callbacks cannot recursively mutate their manager"
+            )
         loop = asyncio.get_running_loop()
         if self._loop is not None and self._loop is not loop:
             raise PluginError("PluginManager belongs to another event loop")
@@ -252,7 +260,13 @@ class PluginManager:
 
         async def serialized() -> Any:
             async with self._lock:
-                return await operation()
+                self._operation_token = object()
+                token = _MUTATING.set((self, self._operation_token))
+                try:
+                    return await operation()
+                finally:
+                    self._operation_token = None
+                    _MUTATING.reset(token)
 
         task = asyncio.create_task(serialized())
         cancelled = False
@@ -277,7 +291,7 @@ class PluginManager:
             for dep in plugin.requires
         ):
             raise DependencyError(f"Dependencies of {name!r} are not active")
-        stack = AsyncExitStack()
+        stack = EffectScope()
         config = copy.deepcopy(self._configs[name])
         if plugin.config_model is not None:
             config = plugin.config_model.model_validate(config)

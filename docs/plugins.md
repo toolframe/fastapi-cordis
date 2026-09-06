@@ -91,15 +91,59 @@ results. Registered cleanup also runs if a later step in setup fails.
 
 The returned service is used as a value; returning a context manager does not
 automatically enter it. Register explicit cleanup for resources you open.
-`ctx.on_dispose` accepts registrations only while setup is running.
+`ctx.on_dispose` accepts registrations throughout the current plugin lifetime and
+returns an idempotent asynchronous disposer. Await that disposer to release one
+resource early. A context from a stopped generation rejects new resources.
 
 Setup and cleanup run on the manager's asyncio loop. Synchronous callbacks must
-be brief and non-blocking. If setup creates background workers, arrange their
-cancellation and completion during cleanup. The manager does not discover or
-terminate those workers automatically.
+be brief and non-blocking. Use the owned-resource helpers for background work:
+
+```python
+async def setup_client(ctx):
+    client = await ctx.enter_async_context(open_client())
+
+    async def poll():
+        while True:
+            await client.receive()
+
+    ctx.task(poll(), name="client-poll")
+    return client
+```
+
+Here `open_client()` is an application-provided async context manager. The runtime
+cancels and joins the poll task before closing the client. Tasks must cooperate
+with asyncio cancellation. Task failures are retrieved immediately and reported
+when their scope closes; they are not silently abandoned.
+
+| Helper | Behavior |
+| --- | --- |
+| `ctx.on_dispose(callback, *args, **kwargs)` | Own sync or async cleanup |
+| `ctx.effect(register)` | Run a synchronous registration returning a cleanup callable |
+| `ctx.enter_context(resource)` | Enter and own a synchronous context manager |
+| `await ctx.enter_async_context(resource)` | Enter and own an async context manager |
+| `ctx.task(coroutine, name=...)` | Start an owned asyncio task |
+| `ctx.scope()` | Create a child `EffectScope` for resources that can close together |
+
+The child scope has the same helpers and can be closed with `await child.aclose()`.
+Parent close also closes children before the parent's resources. Resource scopes
+own cleanup; they do not select different service providers. `EffectScope` can
+also be used independently as an async context manager.
+
+An effect's registration must return a disposer synchronously; the disposer itself
+may be asynchronous. Use `enter_async_context` for asynchronous acquisition. If
+close races with an acquisition, the acquisition settles and its resource exits
+before close completes. Cancellation of the acquiring caller is propagated only
+after acquisition settles. Resource context managers receive a normal exit at
+disposal, rather than an exception from an earlier unrelated request.
+
+Owned tasks may capture their plugin's declared dependencies during setup. They
+do not need a permanent lease on their own plugin. Unowned tasks and worker
+threads still need explicit leases or cancellation/join callbacks; the manager
+does not discover arbitrary tasks or stop Python threads.
 
 Do not await lifecycle mutations on the same manager from setup or cleanup:
-mutations are serialized, so the callback would wait for its own operation to end.
+recursive mutations raise `PluginError` instead of waiting for their own operation.
+An owned task or cleanup callback must not close its own resource scope.
 Lease bookkeeping supports callers in worker threads, but the service must itself
 support whichever concurrency the application permits.
 
