@@ -6,11 +6,15 @@ import asyncio
 import inspect
 from collections.abc import Callable, Coroutine
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
+from contextvars import ContextVar
 from typing import Any, Self, TypeVar
 
 from ._errors import PluginError
 
 T = TypeVar("T")
+_OWNER: ContextVar[tuple[Any, str] | None] = ContextVar(
+    "cordis_work_owner", default=None
+)
 
 
 async def _complete(task: asyncio.Task[T]) -> T:
@@ -65,8 +69,14 @@ class EffectScope:
     is attempted, and failures are reported together.
     """
 
-    def __init__(self, *, _parent: EffectScope | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        _parent: EffectScope | None = None,
+        _owner: tuple[Any, str] | None = None,
+    ) -> None:
         self._parent = _parent
+        self._owner = _parent._owner if _parent is not None else _owner
         self._loop: asyncio.AbstractEventLoop | None = None
         self._accepting = True
         self._cleanups: dict[_Disposer, None] = {}
@@ -165,7 +175,11 @@ class EffectScope:
         """Start an owned task; close cancels and joins it before resources exit."""
         try:
             self._check_open()
-            task = asyncio.create_task(coroutine, name=name)
+            token = _OWNER.set(self._owner)
+            try:
+                task = asyncio.create_task(coroutine, name=name)
+            finally:
+                _OWNER.reset(token)
         except BaseException:
             if inspect.iscoroutine(coroutine):
                 coroutine.close()

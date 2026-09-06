@@ -272,3 +272,45 @@ class ScopeTests(IsolatedAsyncioTestCase):
 
         await scope.task(worker())
         await scope.aclose()
+
+    async def test_owned_task_cannot_await_its_own_plugin_stop(self):
+        ready = asyncio.Event()
+        done = asyncio.Event()
+
+        async def setup(ctx):
+            async def worker():
+                await ready.wait()
+                with pytest.raises(PluginError, match="own plugin"):
+                    await manager.disable("worker")
+                done.set()
+
+            ctx.scope().task(worker())
+
+        manager = PluginManager([Plugin("worker", setup)])
+        async with manager.lifespan():
+            ready.set()
+            async with asyncio.timeout(1):
+                await done.wait()
+
+    async def test_owned_task_finally_cannot_deadlock_manager_shutdown(self):
+        started = asyncio.Event()
+        done = []
+
+        def setup(ctx):
+            async def worker():
+                try:
+                    started.set()
+                    await asyncio.Event().wait()
+                finally:
+                    with pytest.raises(PluginError, match="during disposal"):
+                        await manager.close()
+                    done.append(True)
+
+            ctx.task(worker())
+
+        manager = PluginManager([Plugin("worker", setup)])
+        await manager.start()
+        await started.wait()
+        async with asyncio.timeout(1):
+            await manager.close()
+        assert done == [True]

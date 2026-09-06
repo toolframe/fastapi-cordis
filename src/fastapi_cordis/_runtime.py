@@ -31,7 +31,7 @@ from ._errors import (
     UnknownPlugin,
 )
 from ._graph import DependencyGraph, build_graph
-from ._scope import EffectScope
+from ._scope import _OWNER, EffectScope
 from ._services import ServiceKey
 
 T = TypeVar("T")
@@ -133,6 +133,7 @@ class PluginManager:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = False
         self._operation_token: object | None = None
+        self._disposing: set[str] = set()
         for plugin in plugins:
             self._validate_plugin(plugin)
             if plugin.name in self._plugins:
@@ -278,6 +279,9 @@ class PluginManager:
         return plugin
 
     async def _atomic(self, operation: Callable[[], Any]) -> Any:
+        work = _OWNER.get()
+        if work is not None and work[0] is self and work[1] in self._disposing:
+            raise PluginError("Owned work cannot mutate its manager during disposal")
         owner = _MUTATING.get()
         if owner is not None and owner[0] is self and owner[1] is self._operation_token:
             raise PluginError(
@@ -321,7 +325,7 @@ class PluginManager:
             for dep in self._dependencies[name]
         ):
             raise DependencyError(f"Dependencies of {name!r} are not active")
-        stack = EffectScope()
+        stack = EffectScope(_owner=(self, name))
         config = copy.deepcopy(self._configs[name])
         if plugin.config_model is not None:
             config = plugin.config_model.model_validate(config)
@@ -364,6 +368,7 @@ class PluginManager:
                 self._values.pop(name, None)
                 self._state[name] = "stopped"
             if stack is not None:
+                self._disposing.add(name)
                 try:
                     await stack.aclose()
                 except BaseException as error:  # noqa: BLE001 - attempt every cleanup, then raise the group.
@@ -371,6 +376,8 @@ class PluginManager:
                         self._state[name] = "failed"
                         self._errors[name] = "cleanup_failed"
                     errors.append(error)
+                finally:
+                    self._disposing.discard(name)
         if errors:
             raise BaseExceptionGroup("Plugin cleanup failed", errors)
 
@@ -382,6 +389,9 @@ class PluginManager:
         }
 
     async def _drain(self, names: set[str]) -> None:
+        owner = _OWNER.get()
+        if owner is not None and owner[0] is self and owner[1] in names:
+            raise PluginError("Owned work cannot stop its own plugin or dependencies")
         with self._guard:
             previous = {name: self._state[name] for name in names}
             for name in names:
