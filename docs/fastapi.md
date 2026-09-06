@@ -29,9 +29,10 @@ Pass `management=True` to `install` or `plugin_router` to expose mutations.
 | Method and path | Behavior |
 | --- | --- |
 | `GET /plugins` | Return `{"plugins": [...]}` from the current snapshot |
-| `POST /plugins/{name}/enable` | Start the named plugin |
-| `POST /plugins/{name}/disable` | Stop the named plugin |
-| `POST /plugins/{name}/disable?cascade=true` | Also stop active dependents |
+| `POST /plugins/{name}/enable` | Enable the named plugin; blocked plugins wait for dependencies |
+| `POST /plugins/{name}/disable` | Stop the named plugin and block enabled dependents |
+| `POST /plugins/{name}/disable?cascade=true` | Explicitly disable the dependent group |
+| `POST /plugins/{name}/retry` | Retry a failed plugin and resume waiting consumers |
 | `PUT /plugins/{name}/config` | Replace configuration using a JSON object |
 
 Successful mutations return the updated snapshot. To replace the included example's

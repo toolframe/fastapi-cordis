@@ -82,8 +82,6 @@ def test_service_dependencies_drain_before_provider_cleanup():
 
     async def run():
         async with manager.lifespan():
-            with pytest.raises(DependencyError):
-                await manager.disable("uppercase")
             with manager.lease("consumer") as formatter:
                 stopping = asyncio.create_task(
                     manager.disable("uppercase", cascade=True)
@@ -171,7 +169,9 @@ def test_aliases_are_unambiguous_and_contracts_are_checked_before_setup():
             ]
         )
     with pytest.raises(DependencyError):
-        PluginManager([Plugin("consumer", lambda _: None, requires=(FORMATTER,))])
+        PluginManager(
+            [Plugin("consumer", lambda _: None, requires=(FORMATTER,))]
+        ).validate()
     with pytest.raises(DependencyError):
         PluginManager(
             [

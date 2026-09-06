@@ -18,7 +18,7 @@ implementation, not an official port. It does not run JavaScript Cordis plugins.
 - Typed service keys that let callers keep the same contract when providers change.
 - Dependency-ordered startup and reverse-order cleanup, including failed setup.
 - Owned resource scopes, context managers, and cancellable background tasks.
-- Runtime enable, disable, and configuration replacement.
+- Reactive dependency recovery, runtime registration, and configuration replacement.
 - Service leases that protect resources and their dependencies during async or
   worker-thread calls.
 - FastAPI lifespan integration, service injection, and optional management routes.
@@ -114,10 +114,17 @@ application supplies authentication and authorization for these routes.
 | Endpoint | Behavior |
 | --- | --- |
 | `GET /plugins` | List states, dependencies, and in-flight counts |
-| `POST /plugins/{name}/enable` | Start a plugin whose dependencies are active |
-| `POST /plugins/{name}/disable` | Stop a plugin; reject active dependents |
-| `POST /plugins/{name}/disable?cascade=true` | Stop its active dependents too |
+| `POST /plugins/{name}/enable` | Enable a plugin; start when its dependencies become available |
+| `POST /plugins/{name}/disable` | Stop a plugin and block its enabled dependents |
+| `POST /plugins/{name}/disable?cascade=true` | Explicitly disable the dependent group |
+| `POST /plugins/{name}/retry` | Explicitly retry a failed plugin |
 | `PUT /plugins/{name}/config` | Validate replacement configuration and restart the affected active plugins |
+
+Ordinary disable preserves dependents' enabled intent, so they resume when their
+provider returns. Cascading disable explicitly disables the dependent group.
+Missing providers leave plugins blocked; `manager.validate()` provides an optional
+strict check before startup. `register()` and `unregister()` change definitions at
+runtime; they do not install packages or reload source code.
 
 Configuration values and service objects are omitted from diagnostics. Runtime
 changes stay in this manager; the host owns persistence and coordination across

@@ -95,8 +95,6 @@ class RuntimeTests(IsolatedAsyncioTestCase):
                 assert [p["inFlight"] for p in manager.snapshot()] == [1, 1]
             with manager.lease("storage") as value:
                 assert value["items"] == ["report"]
-            with pytest.raises(DependencyError):
-                await manager.disable("storage")
         await manager.close()
         assert events == [
             "storage.start",
@@ -154,8 +152,8 @@ class RuntimeTests(IsolatedAsyncioTestCase):
                 assert value == 14
             await manager.disable("provider", cascade=True)
             assert [p["state"] for p in manager.snapshot()] == ["disabled", "disabled"]
-            with pytest.raises(DependencyError):
-                await manager.enable("consumer")
+            await manager.enable("consumer")
+            assert manager.snapshot()[-1]["state"] == "blocked"
             await manager.enable("provider")
             await manager.enable("consumer")
         assert events == [1, 7, 7]
@@ -264,7 +262,7 @@ class RuntimeTests(IsolatedAsyncioTestCase):
             with manager.lease("other") as value:
                 assert value == 42
             await manager.configure("provider", {"fail": False})
-            await manager.enable("provider")
+            await manager.retry("provider")
             await manager.enable("consumer")
             with manager.lease("consumer") as value:
                 assert value == 5
@@ -322,7 +320,7 @@ class RuntimeTests(IsolatedAsyncioTestCase):
 )
 def test_invalid_graph_fails_before_setup(plugins):
     with pytest.raises(DependencyError):
-        PluginManager(plugins)
+        PluginManager(plugins).validate()
 
 
 def test_config_and_snapshot_do_not_expose_mutable_internal_state():

@@ -56,10 +56,12 @@ The formatter starts first even though it appears second in the list. The report
 stops first. A caller leasing the reporter also protects the formatter from being
 disposed before that call finishes.
 
-`requires` must be a tuple of registered plugin names or typed service keys. Names are unique, start with
-a letter, and contain only letters, digits, `_`, `.`, or `-`. Missing dependencies
-and cycles are rejected. An enabled plugin cannot initially depend on a disabled
-plugin; disabled definitions are still validated.
+`requires` must be a tuple of plugin names or typed service keys. Names are unique,
+start with a letter, and contain only letters, digits, `_`, `.`, or `-`. Cycles and
+incompatible service contracts are rejected. Missing or disabled providers leave
+enabled consumers blocked until their dependencies become available. Call
+`manager.validate()` for strict validation requiring every provider to exist and
+enabled plugins to have enabled dependencies.
 
 Use `ctx.require(name)` only during setup, for a declared dependency. A plugin may
 retain that dependency in its returned service. Other runtime callers acquire
@@ -195,5 +197,12 @@ packages or scan entry points; installed plugin selection is explicit.
 
 Set `enabled=False` for a plugin that should start disabled. Set `managed=False`
 for infrastructure reserved for the host: ordinary startup and shutdown still
-apply, but runtime enable, disable, and configure operations are rejected,
+apply, but runtime enable, disable, retry, unregister, and configure operations are rejected,
 including cascades that would stop or restart a protected dependent.
+
+Use `await manager.register(definition)` to add an installed plugin while running.
+It validates the candidate graph before changing live state and starts ready
+consumers automatically. Failed setup retains the definition with a failed state,
+allowing explicit retry. `await manager.unregister(name)` drains and removes a
+definition; enabled consumers remain blocked until a replacement provider arrives.
+These methods accept trusted Python definitions, not package names or source code.

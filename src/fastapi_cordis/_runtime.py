@@ -30,6 +30,7 @@ from ._errors import (
     PluginUnavailable,
     UnknownPlugin,
 )
+from ._graph import DependencyGraph, build_graph
 from ._scope import EffectScope
 from ._services import ServiceKey
 
@@ -133,49 +134,40 @@ class PluginManager:
         self._running = False
         self._operation_token: object | None = None
         for plugin in plugins:
-            if not isinstance(plugin, Plugin):
-                raise TypeError("Expected Plugin definitions")
-            if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_.-]*", plugin.name):
-                raise ValueError(f"Invalid plugin name: {plugin.name!r}")
+            self._validate_plugin(plugin)
             if plugin.name in self._plugins:
                 raise DependencyError(f"Duplicate plugin: {plugin.name!r}")
-            if not callable(plugin.setup):
-                raise TypeError(f"Plugin {plugin.name!r} setup must be callable")
-            if not isinstance(plugin.requires, tuple) or not all(
-                isinstance(n, (str, ServiceKey)) for n in plugin.requires
-            ):
-                raise TypeError(
-                    "Plugin requires must be a tuple of names or ServiceKeys"
-                )
-            if plugin.provides is not None and not isinstance(
-                plugin.provides, ServiceKey
-            ):
-                raise TypeError("Plugin provides must be a ServiceKey")
             self._plugins[plugin.name] = plugin
             self._configs[plugin.name] = self._validate_config(plugin, plugin.config)
             self._enabled[plugin.name] = plugin.enabled
             self._state[plugin.name] = "registered" if plugin.enabled else "disabled"
             self._errors[plugin.name] = None
             self._counts[plugin.name] = 0
-        self._providers = {name: name for name in self._plugins}
-        for plugin in self._plugins.values():
-            if plugin.provides is not None:
-                name = plugin.provides.name
-                if name in self._providers and self._providers[name] != plugin.name:
-                    raise DependencyError(f"Multiple providers for service {name!r}")
-                self._providers[name] = plugin.name
-        self._dependencies: dict[str, tuple[str, ...]] = {}
-        for plugin in self._plugins.values():
-            try:
-                self._dependencies[plugin.name] = tuple(
-                    dict.fromkeys(self._resolve_service(ref) for ref in plugin.requires)
-                )
-            except UnknownPlugin as error:
-                raise DependencyError(
-                    f"Missing dependency for plugin {plugin.name!r}: {error}"
-                ) from error
-        self._order = self._topological_order()
-        self.validate()
+        self._set_graph(build_graph(self._plugins))
+        self._mark_blocked()
+
+    @staticmethod
+    def _validate_plugin(plugin: Plugin) -> None:
+        if not isinstance(plugin, Plugin):
+            raise TypeError("Expected Plugin definitions")
+        if not isinstance(plugin.name, str) or not re.fullmatch(
+            r"[a-zA-Z][a-zA-Z0-9_.-]*", plugin.name
+        ):
+            raise ValueError(f"Invalid plugin name: {plugin.name!r}")
+        if not callable(plugin.setup):
+            raise TypeError(f"Plugin {plugin.name!r} setup must be callable")
+        if not isinstance(plugin.requires, tuple) or not all(
+            isinstance(n, (str, ServiceKey)) for n in plugin.requires
+        ):
+            raise TypeError("Plugin requires must be a tuple of names or ServiceKeys")
+        if plugin.provides is not None and not isinstance(plugin.provides, ServiceKey):
+            raise TypeError("Plugin provides must be a ServiceKey")
+
+    def _set_graph(self, graph: DependencyGraph) -> None:
+        self._providers = graph.providers
+        self._dependencies = graph.dependencies
+        self._missing = graph.missing
+        self._order = graph.order
 
     def _resolve_service(self, reference: str | ServiceKey[Any]) -> str:
         name = reference.name if isinstance(reference, ServiceKey) else reference
@@ -188,29 +180,6 @@ class PluginManager:
         ):
             raise DependencyError(f"Incompatible contract for service {name!r}")
         return provider
-
-    def _topological_order(self) -> tuple[str, ...]:
-        ordered: list[str] = []
-        visiting: set[str] = set()
-        visited: set[str] = set()
-
-        def visit(name: str) -> None:
-            if name not in self._plugins:
-                raise DependencyError(f"Missing plugin dependency: {name!r}")
-            if name in visiting:
-                raise DependencyError(f"Dependency cycle at {name!r}")
-            if name in visited:
-                return
-            visiting.add(name)
-            for dependency in self._dependencies[name]:
-                visit(dependency)
-            visiting.remove(name)
-            visited.add(name)
-            ordered.append(name)
-
-        for name in self._plugins:
-            visit(name)
-        return tuple(ordered)
 
     @staticmethod
     def _validate_config(plugin: Plugin, config: Mapping[str, Any]) -> dict[str, Any]:
@@ -231,8 +200,12 @@ class PluginManager:
         return detached
 
     def validate(self) -> None:
-        """Validate enabled dependencies without executing plugin setup."""
+        """Strictly require all providers and enabled dependency intentions."""
         for name in self._order:
+            if self._missing[name]:
+                raise DependencyError(
+                    f"Missing dependencies of {name!r}: {', '.join(self._missing[name])}"
+                )
             if self._enabled[name]:
                 for dependency in self._dependencies[name]:
                     if not self._enabled[dependency]:
@@ -258,6 +231,7 @@ class PluginManager:
                     "state": self._state[name],
                     "inFlight": self._counts[name],
                     "error": self._errors[name],
+                    "blockedBy": self._blocked_by(name),
                 }
                 for name in self._order
             ]
@@ -278,9 +252,9 @@ class PluginManager:
     @contextmanager
     def lease(self, name: str | ServiceKey[Any]) -> Iterator[Any]:
         """Hold a service and all its dependencies until actual work has finished."""
-        name = self._resolve_service(name)
-        names = self._ancestors(name)
         with self._guard:
+            name = self._resolve_service(name)
+            names = self._ancestors(name)
             if any(self._state[item] != "active" for item in names):
                 raise PluginUnavailable(name)
             for item in names:
@@ -342,7 +316,7 @@ class PluginManager:
 
     async def _activate(self, name: str, *, publish: bool = True) -> None:
         plugin = self._plugins[name]
-        if any(
+        if self._missing[name] or any(
             self._state[dep] not in {"active", "starting"} or dep not in self._values
             for dep in self._dependencies[name]
         ):
@@ -433,29 +407,69 @@ class PluginManager:
         if not self._running:
             raise PluginError("PluginManager has not started")
 
+    def _blocked_by(self, name: str) -> list[str]:
+        return [
+            *self._missing[name],
+            *(
+                dep
+                for dep in self._dependencies[name]
+                if self._state[dep] not in {"active", "starting"}
+            ),
+        ]
+
+    def _mark_blocked(self) -> None:
+        with self._guard:
+            for name in self._order:
+                if self._state[name] in {"active", "starting", "draining", "failed"}:
+                    continue
+                if not self._enabled[name]:
+                    self._state[name] = "disabled"
+                elif self._blocked_by(name):
+                    self._state[name] = "blocked"
+                elif self._state[name] == "blocked":
+                    self._state[name] = "registered"
+
+    async def _reconcile(self) -> None:
+        """Publish the newly ready group together; failed plugins require retry."""
+        started: set[str] = set()
+        try:
+            for name in self._order:
+                if (
+                    self._enabled[name]
+                    and self._state[name] not in {"active", "failed"}
+                    and not self._blocked_by(name)
+                ):
+                    await self._activate(name, publish=False)
+                    started.add(name)
+        except BaseException as error:
+            await self._drain(started)
+            try:
+                await self._dispose(started)
+            except BaseException as cleanup_error:  # noqa: BLE001 - preserve activation and cleanup failures.
+                raise BaseExceptionGroup(
+                    "Activation and cleanup failed", [error, cleanup_error]
+                ) from None
+            finally:
+                self._mark_blocked()
+            raise
+        with self._guard:
+            for name in started:
+                self._state[name] = "active"
+            self._mark_blocked()
+
     async def start(self) -> None:
         async def operation() -> None:
             if self._running:
                 return
-            self.validate()
-            started: set[str] = set()
-            try:
-                for name in self._order:
-                    if self._enabled[name]:
-                        await self._activate(name, publish=False)
-                        started.add(name)
-            except BaseException as error:
-                await self._drain(started)
-                try:
-                    await self._dispose(started)
-                except BaseException as cleanup_error:  # noqa: BLE001 - preserve startup and cleanup failures.
-                    raise BaseExceptionGroup(
-                        "Startup and cleanup failed", [error, cleanup_error]
-                    )
-                raise
+            # An explicit new startup attempt retries enabled startup failures.
+            # Dependency recovery during a running session does not do this.
             with self._guard:
-                for name in started:
-                    self._state[name] = "active"
+                for name in self._order:
+                    if self._enabled[name] and self._state[name] == "failed":
+                        self._state[name] = "registered"
+                        self._errors[name] = None
+            await self._reconcile()
+            with self._guard:
                 self._running = True
 
         await self._atomic(operation)
@@ -483,10 +497,11 @@ class PluginManager:
         async def operation() -> None:
             self._require_running()
             self._lookup(name, managed=True)
-            if self._state[name] != "active":
-                await self._activate(name)
+            if self._state[name] == "failed":
+                raise PluginError("Failed plugins require retry()")
             with self._guard:
                 self._enabled[name] = True
+            await self._reconcile()
 
         await self._atomic(operation)
 
@@ -495,21 +510,23 @@ class PluginManager:
             self._require_running()
             self._lookup(name, managed=True)
             names = self._active_dependents(name)
-            if names - {name} and not cascade:
-                raise DependencyError(
-                    f"Active dependents: {', '.join(sorted(names - {name}))}"
-                )
-            for item in names:
+            disabled = (
+                {item for item in self._order if name in self._ancestors(item)}
+                if cascade
+                else {name}
+            )
+            for item in names | disabled:
                 self._lookup(item, managed=True)
             await self._drain(names)
             try:
                 await self._dispose(names)
             finally:
                 with self._guard:
-                    for item in names | {name}:
+                    for item in disabled:
                         self._enabled[item] = False
                         if self._state[item] != "failed":
                             self._state[item] = "disabled"
+                    self._mark_blocked()
 
         await self._atomic(operation)
 
@@ -524,24 +541,91 @@ class PluginManager:
 
         async def operation() -> None:
             self._require_running()
+            plugin = self._lookup(name, managed=True)
+            replacement = self._validate_config(plugin, config)
             names = self._active_dependents(name)
             for item in names:
                 self._lookup(item, managed=True)
             await self._drain(names)
-            await self._dispose(names)
-            self._configs[name] = config
-            started: set[str] = set()
             try:
-                for item in self._order:
-                    if item in names:
-                        await self._activate(item, publish=False)
-                        started.add(item)
-                with self._guard:
-                    for item in started:
-                        self._state[item] = "active"
-            except BaseException:
-                await self._drain(started)
-                await self._dispose(started)
-                raise
+                await self._dispose(names)
+            finally:
+                self._mark_blocked()
+            self._configs[name] = replacement
+            await self._reconcile()
+
+        await self._atomic(operation)
+
+    async def retry(self, name: str) -> None:
+        """Explicitly retry one failed plugin and resume its blocked consumers."""
+
+        async def operation() -> None:
+            self._require_running()
+            self._lookup(name, managed=True)
+            if self._state[name] != "failed":
+                raise PluginError("Only failed plugins can be retried")
+            with self._guard:
+                self._enabled[name] = True
+                self._state[name] = "registered"
+                self._errors[name] = None
+            await self._reconcile()
+
+        await self._atomic(operation)
+
+    async def register(self, plugin: Plugin) -> None:
+        """Add a definition and reconcile consumers waiting for its services."""
+        self._validate_plugin(plugin)
+        config = self._validate_config(plugin, plugin.config)
+
+        async def operation() -> None:
+            self._require_running()
+            if plugin.name in self._plugins:
+                raise DependencyError(f"Duplicate plugin: {plugin.name!r}")
+            candidate = {**self._plugins, plugin.name: plugin}
+            graph = build_graph(candidate)
+            with self._guard:
+                self._plugins = candidate
+                self._configs[plugin.name] = config
+                self._enabled[plugin.name] = plugin.enabled
+                self._state[plugin.name] = (
+                    "registered" if plugin.enabled else "disabled"
+                )
+                self._errors[plugin.name] = None
+                self._counts[plugin.name] = 0
+                self._set_graph(graph)
+            await self._reconcile()
+
+        await self._atomic(operation)
+
+    async def unregister(self, name: str) -> None:
+        """Remove a definition, leaving enabled dependents waiting for a provider."""
+
+        async def operation() -> None:
+            self._require_running()
+            self._lookup(name, managed=True)
+            candidate = {
+                key: value for key, value in self._plugins.items() if key != name
+            }
+            graph = build_graph(candidate)
+            names = self._active_dependents(name)
+            for item in names:
+                self._lookup(item, managed=True)
+            await self._drain(names)
+            try:
+                await self._dispose(names)
+            finally:
+                self._mark_blocked()
+            with self._guard:
+                self._plugins = candidate
+                for values in (
+                    self._configs,
+                    self._enabled,
+                    self._state,
+                    self._errors,
+                    self._counts,
+                ):
+                    values.pop(name)
+                self._set_graph(graph)
+            await self._reconcile()
 
         await self._atomic(operation)

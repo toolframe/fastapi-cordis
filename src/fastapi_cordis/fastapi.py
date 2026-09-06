@@ -66,6 +66,10 @@ def plugin_router(
         async def disable(name: str, cascade: bool = False) -> dict[str, Any]:
             return await apply(manager.disable(name, cascade=cascade))
 
+        @router.post("/{name}/retry")
+        async def retry(name: str) -> dict[str, Any]:
+            return await apply(manager.retry(name))
+
         @router.put("/{name}/config")
         async def configure(name: str, config: dict[str, Any]) -> dict[str, Any]:
             return await apply(manager.configure(name, config))

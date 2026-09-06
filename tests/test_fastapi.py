@@ -1,5 +1,6 @@
 import warnings
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 import pytest
 from fastapi import Depends, FastAPI, Request
@@ -101,6 +102,7 @@ def test_default_install_lists_active_plugins_without_config_and_no_management()
                     "state": "active",
                     "inFlight": 0,
                     "error": None,
+                    "blockedBy": [],
                 }
             ]
         }
@@ -189,3 +191,39 @@ def test_valid_config_with_failed_setup_reports_server_error_and_private_diagnos
         plugin = client.get("/plugins").json()["plugins"][0]
         assert plugin["state"] == "failed"
         assert plugin["error"] == "setup_failed"
+        assert client.post("/plugins/service/enable").status_code == 409
+        assert (
+            client.put("/plugins/service/config", json={"fail": False}).status_code
+            == 200
+        )
+        assert client.post("/plugins/service/retry").status_code == 200
+        assert client.get("/plugins").json()["plugins"][0]["state"] == "active"
+        assert client.post("/plugins/service/retry").status_code == 409
+
+
+def test_provider_management_blocks_and_resumes_consumers():
+    app = FastAPI()
+    manager = PluginManager(
+        [
+            Plugin("provider", lambda _: "ok"),
+            Plugin(
+                "consumer", lambda ctx: ctx.require("provider"), requires=("provider",)
+            ),
+        ]
+    )
+    install(app, manager, management=True)
+
+    @app.get("/work")
+    def work(value: Annotated[str, Depends(service("consumer"))]):
+        return value
+
+    with TestClient(app) as client:
+        assert client.get("/work").status_code == 200
+        result = client.post("/plugins/provider/disable")
+        assert result.status_code == 200
+        consumer = result.json()["plugins"][-1]
+        assert consumer["state"] == "blocked"
+        assert consumer["enabled"] is True
+        assert client.get("/work").status_code == 503
+        assert client.post("/plugins/provider/enable").status_code == 200
+        assert client.get("/work").json() == "ok"

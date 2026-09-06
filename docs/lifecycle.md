@@ -27,19 +27,31 @@ This prints `MONTHLY REPORT`. Use one lifespan owner per manager. A host may cal
 
 | Operation | Behavior |
 | --- | --- |
-| `manager.validate()` | Check enabled dependencies without executing setup |
-| `await manager.start()` | Start enabled plugins in dependency order |
+| `manager.validate()` | Strictly check provider presence and enabled dependencies without executing setup |
+| `await manager.start()` | Start enabled plugins whose dependencies are available |
 | `await manager.close()` | Drain calls and dispose resources in reverse dependency order |
-| `await manager.enable(name)` | Start one plugin; its dependencies must already be active |
-| `await manager.disable(name)` | Stop one plugin; reject active dependents |
-| `await manager.disable(name, cascade=True)` | Stop the plugin and its active dependents |
+| `await manager.enable(name)` | Record enabled intent and start ready plugins |
+| `await manager.disable(name)` | Stop the plugin and block enabled dependents |
+| `await manager.disable(name, cascade=True)` | Explicitly disable the whole dependent group |
+| `await manager.retry(name)` | Retry a failed plugin and resume ready consumers |
+| `await manager.register(plugin)` | Add a definition and reconcile waiting plugins |
+| `await manager.unregister(name)` | Remove a definition and block affected consumers |
 | `await manager.configure(name, config)` | Validate replacement configuration and restart the affected active group |
 | `manager.snapshot()` | Return detached diagnostic records |
 
-The constructor also validates plugin names, the full dependency graph, and every
-configuration. Runtime management methods require a started manager. After a
-cascading disable, enable providers before their dependents. Updating an inactive
-plugin's configuration does not enable it.
+The constructor validates plugin names, cycles, service contracts, and every
+configuration. Missing providers are allowed so they can arrive later. Use the
+optional strict `validate()` check if the complete graph must exist at startup.
+Runtime management methods require a started manager. Updating a disabled plugin's
+configuration does not enable it.
+
+Ordinary disable changes only the named plugin's enabled intent. Consumers stop,
+retain enabled intent, and enter `blocked`; enabling the provider resumes them.
+With `cascade=True`, disabled intent applies to the whole dependent group,
+including consumers already blocked. Re-enable that group explicitly afterward.
+A failed plugin never retries merely because its dependency reappears: correct
+its configuration and call `retry(name)`. Calling `start()` again after failed
+initial startup explicitly retries enabled startup failures.
 
 ## Keep leases around the actual work
 
@@ -63,6 +75,7 @@ in the same task: that operation would wait for the lease you still hold.
 | --- | --- |
 | `registered` | Defined and enabled, but not started |
 | `disabled` | Disabled by configuration or a runtime operation |
+| `blocked` | Enabled, but waiting for missing or unavailable dependencies |
 | `starting` | Setup is in progress, or the group is waiting to become active |
 | `active` | Available for new leases |
 | `draining` | Waiting for existing leases; new leases are rejected |
@@ -70,7 +83,7 @@ in the same task: that operation would wait for the lease you still hold.
 | `failed` | Setup or cleanup failed |
 
 Each snapshot contains `name`, `description`, `requires`, `provides`, `enabled`, `managed`,
-`state`, `inFlight`, and `error`. Configuration and service values are omitted.
+`state`, `inFlight`, `blockedBy`, and `error`. Configuration and service values are omitted.
 `enabled` records the desired flag; it does not prove readiness after a failure.
 Check `state` for availability. `inFlight` includes leases held through dependents.
 Errors use the codes `setup_failed` and `cleanup_failed`; callers or server logs
@@ -91,7 +104,7 @@ Typed service references use the same lease and drain behavior as named plugins.
   then starts it again. The group becomes available only after all setup succeeds.
 - If setup fails during that replacement, partial resources are cleaned, the
   restarted group becomes unavailable, and the new configuration is retained.
-  Correct the configuration, then enable providers before dependents. External
+  Correct the configuration, then retry the failed plugin. Blocked consumers resume. External
   effects such as writes to another system are not rolled back.
 - If cleanup fails before the replacement configuration is stored, the old
   configuration remains. Cleanup errors are reported after all affected cleanup
