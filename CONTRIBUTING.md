@@ -20,7 +20,7 @@ version as well as the development interpreter:
 ```sh
 uv build
 uv run --no-project --python 3.11 \
-  --with ./dist/fastapi_cordis-0.1.0-py3-none-any.whl \
+  --with ./dist/fastapi_cordis-0.2.0-py3-none-any.whl \
   --with pytest --with httpx python -m pytest tests
 ```
 
@@ -30,10 +30,12 @@ does not upload them.
 
 ## Keep the package boundary clear
 
-Lifecycle ordering, configuration, leases, and resource cleanup belong in
-`src/fastapi_cordis/_runtime.py`. HTTP integration belongs in
-`src/fastapi_cordis/fastapi.py`. Application-specific discovery, persistence,
-installation, and migrations belong to consuming applications.
+Lifecycle orchestration, configuration, and leases belong in
+`src/fastapi_cordis/_runtime.py`. Pure dependency planning belongs in `_graph.py`,
+resource ownership in `_scope.py`, typed contracts in `_services.py`, and event
+dispatch in `_events.py`. HTTP integration belongs in `fastapi.py`.
+Application-specific discovery, persistence, installation, and migrations belong
+to consuming applications.
 
 Keep plugin imports free of resource acquisition. Cover lifecycle changes through
 observable behavior: dependency ordering, active callers during shutdown,

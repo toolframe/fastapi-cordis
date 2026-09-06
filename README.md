@@ -48,7 +48,7 @@ To build and install a local distribution:
 
 ```sh
 uv build
-python -m pip install dist/fastapi_cordis-0.1.0-py3-none-any.whl
+python -m pip install dist/fastapi_cordis-0.2.0-py3-none-any.whl
 ```
 
 Building these files does not publish them.
@@ -163,6 +163,7 @@ These guides are included in the source checkout and source distribution:
 | `docs/services.md` | Service contracts, multiple capabilities, and scoped providers |
 | `docs/fastapi.md` | Lifespan integration, HTTP behavior, and protected management routes |
 | `CONTRIBUTING.md` | Development, artifact checks, and preparation for a future release |
+| `CHANGELOG.md` | Version changes and migration from 0.1.0 |
 
 ## License
 
