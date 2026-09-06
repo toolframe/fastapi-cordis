@@ -75,9 +75,7 @@ async def greeting(ctx: PluginContext):
     return lambda name: f"{ctx.config.prefix}, {name}"
 
 
-manager = PluginManager(
-    [Plugin("greeting", greeting, config_model=GreetingConfig)]
-)
+manager = PluginManager([Plugin("greeting", greeting, config_model=GreetingConfig)])
 app = FastAPI()
 install(app, manager)
 
