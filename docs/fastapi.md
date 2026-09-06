@@ -35,6 +35,7 @@ Pass `management=True` to `install` or `plugin_router` to expose mutations.
 | `POST /plugins/{name}/disable?cascade=true` | Explicitly disable the dependent group |
 | `POST /plugins/{name}/retry` | Retry a failed plugin and resume waiting consumers |
 | `PUT /plugins/{name}/config` | Replace configuration using a JSON object |
+| `POST /plugins/{name}/config/plan` | Validate proposed settings and preview the affected group without applying them |
 
 Successful mutations return the updated snapshot. To replace the included example's
 greeting configuration while it is running locally:
@@ -47,6 +48,15 @@ curl -X PUT http://127.0.0.1:8000/plugins/greeting/config \
 
 `GET /hello/Ada` will then return `{"message":"Welcome, Ada"}`. Omitted fields use
 model defaults; the body is a replacement, not a patch.
+
+Send the same JSON body to `POST /plugins/greeting/config/plan` to preview the
+change. This endpoint returns the plan object rather than a plugin list, including
+`changed`, `affected`, `protected`, and `canApply`. It is available only when
+management routes are enabled. Plans execute no lifecycle callbacks and expose
+no configuration values. They are advisory: the graph can change before the
+update is applied. Equivalent validated settings skip restart. See
+[configuration previews and diagnostics](lifecycle.md#preview-configuration-changes)
+for revision, generation, and timing semantics.
 
 | HTTP status | Meaning |
 | --- | --- |

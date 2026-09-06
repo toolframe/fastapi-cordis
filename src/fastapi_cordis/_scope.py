@@ -103,11 +103,15 @@ class EffectScope:
 
     @property
     def task_count(self) -> int:
-        return len(self._tasks)
+        return len(self._tasks) + sum(
+            child.task_count for child in tuple(self._children)
+        )
 
     @property
     def task_error_count(self) -> int:
-        return len(self._task_errors)
+        return len(self._task_errors) + sum(
+            child.task_error_count for child in tuple(self._children)
+        )
 
     def on_dispose(
         self, callback: Callable[..., Any], *args: Any, **kwargs: Any

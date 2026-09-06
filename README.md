@@ -21,6 +21,7 @@ implementation, not an official port. It does not run JavaScript Cordis plugins.
 - Owned resource scopes, context managers, and cancellable background tasks.
 - Typed events with owned listeners and leases around running handlers.
 - Reactive dependency recovery, runtime registration, and configuration replacement.
+- Configuration previews, equivalent-update detection, and lifecycle diagnostics.
 - Service leases that protect resources and their dependencies during async or
   worker-thread calls.
 - FastAPI lifespan integration, service injection, and optional management routes.
@@ -121,12 +122,17 @@ application supplies authentication and authorization for these routes.
 | `POST /plugins/{name}/disable?cascade=true` | Explicitly disable the dependent group |
 | `POST /plugins/{name}/retry` | Explicitly retry a failed plugin |
 | `PUT /plugins/{name}/config` | Validate replacement configuration and restart the affected active plugins |
+| `POST /plugins/{name}/config/plan` | Preview affected plugins and protected dependents without applying settings |
 
 Ordinary disable preserves dependents' enabled intent, so they resume when their
 provider returns. Cascading disable explicitly disables the dependent group.
 Missing providers leave plugins blocked; `manager.validate()` provides an optional
 strict check before startup. `register()` and `unregister()` change definitions at
 runtime; they do not install packages or reload source code.
+
+Equivalent validated configuration is a no-op. Snapshots report configuration
+revisions, service generations, lifecycle timings, and owned task counts. Plans
+are advisory; applying an update checks the current graph again.
 
 Configuration values and service objects are omitted from diagnostics. Runtime
 changes stay in this manager; the host owns persistence and coordination across

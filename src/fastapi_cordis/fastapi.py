@@ -39,9 +39,9 @@ def plugin_router(
     async def list_plugins() -> dict[str, Any]:
         return {"plugins": manager.snapshot()}
 
-    async def apply(operation) -> dict[str, Any]:
+    async def apply(operation, *, snapshot: bool = True) -> dict[str, Any]:
         try:
-            await operation
+            result = await operation
         except UnknownPlugin as error:
             raise HTTPException(404, "Unknown plugin") from error
         except ConfigurationError as error:
@@ -54,7 +54,7 @@ def plugin_router(
             raise HTTPException(
                 500, "Plugin operation failed; inspect plugin states and server logs"
             ) from error
-        return {"plugins": manager.snapshot()}
+        return {"plugins": manager.snapshot()} if snapshot else result
 
     if management:
 
@@ -73,6 +73,13 @@ def plugin_router(
         @router.put("/{name:path}/config")
         async def configure(name: str, config: dict[str, Any]) -> dict[str, Any]:
             return await apply(manager.configure(name, config))
+
+        @router.post("/{name:path}/config/plan")
+        async def plan(name: str, config: dict[str, Any]) -> dict[str, Any]:
+            async def preview():
+                return manager.plan_configure(name, config)
+
+            return await apply(preview(), snapshot=False)
 
     return router
 

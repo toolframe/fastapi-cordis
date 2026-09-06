@@ -9,6 +9,7 @@ import json
 import math
 import re
 import threading
+import time
 from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
@@ -46,6 +47,24 @@ T = TypeVar("T")
 _MUTATING: ContextVar[tuple[Any, object] | None] = ContextVar(
     "cordis_mutation", default=None
 )
+
+
+@dataclass
+class _Stats:
+    config_revision: int = 0
+    generation: int = 0
+    setup_ms: float | None = None
+    cleanup_ms: float | None = None
+    drain_ms: float | None = None
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "configRevision": self.config_revision,
+            "generation": self.generation,
+            "lastSetupMs": self.setup_ms,
+            "lastCleanupMs": self.cleanup_ms,
+            "lastDrainMs": self.drain_ms,
+        }
 
 
 @dataclass(frozen=True)
@@ -194,6 +213,8 @@ class PluginManager:
         self._published: dict[str, dict[str, Any]] = {}
         self._stacks: dict[str, EffectScope] = {}
         self._counts: dict[str, int] = {}
+        self._stats: dict[str, _Stats] = {}
+        self._generation = 0
         self._guard = threading.RLock()
         self._lock = asyncio.Lock()
         self._changed = asyncio.Event()
@@ -213,6 +234,7 @@ class PluginManager:
             self._state[name] = "registered" if plugin.enabled else "disabled"
             self._errors[name] = None
             self._counts[name] = 0
+            self._stats[name] = _Stats()
         self._set_graph(build_graph(self._plugins))
         self._mark_blocked()
 
@@ -302,6 +324,45 @@ class PluginManager:
                             f"Enabled plugin {name!r} requires disabled {dependency!r}"
                         )
 
+    @staticmethod
+    def _same_config(
+        plugin: Plugin, current: dict[str, Any], proposed: dict[str, Any]
+    ) -> bool:
+        if plugin.config_model is not None:
+            # Compare validated values without serializing models: serialization
+            # can redact SecretStr values and must not become stored settings.
+            return plugin.config_model.model_validate(
+                current
+            ) == plugin.config_model.model_validate(proposed)
+        return json.dumps(current, sort_keys=True) == json.dumps(
+            proposed, sort_keys=True
+        )
+
+    def plan_configure(self, name: str, config: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate and preview an update without exposing or storing settings.
+
+        The plan is advisory: configure recomputes against current state under
+        the mutation lock. No plugin setup or cleanup is executed here.
+        """
+        with self._guard:
+            plugin = self._lookup(name)
+            replacement = self._validate_config(plugin, config)
+            changed = not self._same_config(plugin, self._configs[name], replacement)
+            affected = self._active_dependents(name) if changed else set()
+            protected = {
+                item for item in affected | {name} if not self._plugins[item].managed
+            }
+            return {
+                "name": name,
+                "changed": changed,
+                "affected": [item for item in self._order if item in affected],
+                "protected": [item for item in self._order if item in protected],
+                "managerRunning": self._running,
+                "canApply": self._running and not protected,
+                "configRevision": self._stats[name].config_revision,
+                "generation": self._stats[name].generation,
+            }
+
     def snapshot(self) -> list[dict[str, Any]]:
         """Return detached diagnostics. Configuration and service values stay private."""
         with self._guard:
@@ -318,6 +379,13 @@ class PluginManager:
                     "inFlight": self._counts[name],
                     "error": self._errors[name],
                     "blockedBy": self._blocked_by(name),
+                    "ownedTasks": self._stacks[name].task_count
+                    if name in self._stacks
+                    else 0,
+                    "taskFailures": self._stacks[name].task_error_count
+                    if name in self._stacks
+                    else 0,
+                    **self._stats[name].snapshot(),
                 }
                 for name in self._order
             ]
@@ -429,32 +497,45 @@ class PluginManager:
         with self._guard:
             self._state[name] = "starting"
             self._errors[name] = None
+        started_at = time.perf_counter()
         try:
-            value = plugin.setup(context)
-            if inspect.isawaitable(value):
-                value = await value
-            keys = provided_keys(plugin)
-            if len(keys) == 1 and keys[0].name not in context._published:
-                context.provide(keys[0], value)
-            if any(key.name not in context._published for key in keys):
-                raise DependencyError(
-                    f"Plugin {name!r} did not provide all declared services"
-                )
+            try:
+                value = plugin.setup(context)
+                if inspect.isawaitable(value):
+                    value = await value
+                keys = provided_keys(plugin)
+                if len(keys) == 1 and keys[0].name not in context._published:
+                    context.provide(keys[0], value)
+                if any(key.name not in context._published for key in keys):
+                    raise DependencyError(
+                        f"Plugin {name!r} did not provide all declared services"
+                    )
+            finally:
+                context._accepting = False
+                with self._guard:
+                    self._stats[name].setup_ms = (
+                        time.perf_counter() - started_at
+                    ) * 1000
         except BaseException as error:
-            context._accepting = False
             with self._guard:
                 self._state[name] = "failed"
                 self._errors[name] = "setup_failed"
+            started_at = time.perf_counter()
             try:
                 await stack.aclose()
             except BaseException as cleanup_error:  # noqa: BLE001 - preserve both failures in the group.
                 raise BaseExceptionGroup(
                     "Plugin setup and cleanup failed", [error, cleanup_error]
                 )
+            finally:
+                with self._guard:
+                    self._stats[name].cleanup_ms = (
+                        time.perf_counter() - started_at
+                    ) * 1000
             raise
-        finally:
-            context._accepting = False
         with self._guard:
+            self._generation += 1
+            self._stats[name].generation = self._generation
             self._stacks[name] = stack
             self._values[name] = value
             self._published[name] = context._published
@@ -465,13 +546,14 @@ class PluginManager:
         for name in reversed(self._order):
             if name not in names:
                 continue
-            stack = self._stacks.pop(name, None)
             with self._guard:
+                stack = self._stacks.pop(name, None)
                 self._values.pop(name, None)
                 self._published.pop(name, None)
                 self._state[name] = "stopped"
             if stack is not None:
                 self._disposing.add(name)
+                started_at = time.perf_counter()
                 try:
                     await stack.aclose()
                 except BaseException as error:  # noqa: BLE001 - attempt every cleanup, then raise the group.
@@ -481,6 +563,10 @@ class PluginManager:
                     errors.append(error)
                 finally:
                     self._disposing.discard(name)
+                    with self._guard:
+                        self._stats[name].cleanup_ms = (
+                            time.perf_counter() - started_at
+                        ) * 1000
         if errors:
             raise BaseExceptionGroup("Plugin cleanup failed", errors)
 
@@ -505,6 +591,7 @@ class PluginManager:
         owner = _OWNER.get()
         if owner is not None and owner[0] is self and owner[1] in names:
             raise PluginError("Owned work cannot stop its own plugin or dependencies")
+        started_at = time.perf_counter()
         with self._guard:
             previous = {name: self._state[name] for name in names}
             for name in names:
@@ -525,6 +612,11 @@ class PluginManager:
                     "Plugins are still in use; no resources were disposed"
                 ) from error
             raise
+        finally:
+            with self._guard:
+                elapsed = (time.perf_counter() - started_at) * 1000
+                for name in names:
+                    self._stats[name].drain_ms = elapsed
 
     def _require_running(self) -> None:
         if not self._running:
@@ -664,7 +756,7 @@ class PluginManager:
         """Replace config and restart active dependents. Failed setup stays stopped.
 
         External side effects cannot be rolled back. The new config is retained so
-        operators can correct it and explicitly enable the affected plugins.
+        operators can correct it and explicitly retry failed plugins.
         """
         # Copy at the call boundary so callers cannot mutate a queued config.
         config = self._validate_config(self._lookup(name, managed=True), config)
@@ -673,6 +765,8 @@ class PluginManager:
             self._require_running()
             plugin = self._lookup(name, managed=True)
             replacement = self._validate_config(plugin, config)
+            if self._same_config(plugin, self._configs[name], replacement):
+                return
             names = self._active_dependents(name)
             for item in names:
                 self._lookup(item, managed=True)
@@ -681,7 +775,9 @@ class PluginManager:
                 await self._dispose(names)
             finally:
                 self._mark_blocked()
-            self._configs[name] = replacement
+            with self._guard:
+                self._configs[name] = replacement
+                self._stats[name].config_revision += 1
             await self._reconcile()
 
         await self._atomic(operation)
@@ -729,6 +825,7 @@ class PluginManager:
                 self._state[name] = "registered" if plugin.enabled else "disabled"
                 self._errors[name] = None
                 self._counts[name] = 0
+                self._stats[name] = _Stats()
                 self._set_graph(graph)
             await self._reconcile()
 
@@ -760,6 +857,7 @@ class PluginManager:
                     self._state,
                     self._errors,
                     self._counts,
+                    self._stats,
                 ):
                     values.pop(name)
                 self._set_graph(graph)

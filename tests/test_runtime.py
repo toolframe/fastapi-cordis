@@ -296,7 +296,7 @@ class RuntimeTests(IsolatedAsyncioTestCase):
             for action in (
                 manager.disable("host"),
                 manager.disable("provider", cascade=True),
-                manager.configure("provider", {}),
+                manager.configure("provider", {"changed": True}),
             ):
                 with pytest.raises(PluginError):
                     await action

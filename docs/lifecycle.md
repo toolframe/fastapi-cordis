@@ -37,6 +37,7 @@ This prints `MONTHLY REPORT`. Use one lifespan owner per manager. A host may cal
 | `await manager.register(plugin)` | Add a definition and reconcile waiting plugins |
 | `await manager.unregister(name)` | Remove a definition and block affected consumers |
 | `await manager.configure(name, config)` | Validate replacement configuration and restart the affected active group |
+| `manager.plan_configure(name, config)` | Validate and preview an update without executing lifecycle callbacks |
 | `manager.snapshot()` | Return detached diagnostic records |
 
 The constructor validates plugin names, cycles, service contracts, and every
@@ -89,10 +90,47 @@ Check `state` for availability. `inFlight` includes leases held through dependen
 Errors use the codes `setup_failed` and `cleanup_failed`; callers or server logs
 receive the underlying exceptions.
 
+Additional diagnostics describe the current definition and its last setup:
+
+| Field | Meaning |
+| --- | --- |
+| `configRevision` | Starts at zero; increments when changed configuration is stored, even if replacement setup fails |
+| `generation` | Manager-wide increasing identifier assigned after each successful setup; zero before the first success |
+| `lastSetupMs` | Most recent setup duration, including failed attempts but excluding their cleanup |
+| `lastCleanupMs` | Most recent cleanup duration, including partial setup cleanup |
+| `lastDrainMs` | Most recent drain duration, including timed-out attempts |
+| `ownedTasks` | Tracked tasks in the current resource scope and its children |
+| `taskFailures` | Recorded task failures in the current resource scope and its children |
+
+Timings are milliseconds and remain `null` until that phase runs. A failed or
+stopped plugin retains its last successful generation; use `state` to determine
+availability. Removing and registering an instance resets its configuration
+revision, while successful setups continue the manager's generation sequence.
+Task failures are also reported during cleanup. Disposed scopes contribute no
+current task counts.
+
 `provides` is the stable service name (a list for multiple capabilities), or the
 local plugin name when no service key is declared. `requires` lists actual provider
 instance IDs. Scoped instance IDs have the form `scope/plugin-name`.
 Typed service references use the same lease and drain behavior as named plugins.
+
+## Preview configuration changes
+
+`manager.plan_configure(name, proposed)` validates proposed settings and returns
+`changed`, the active `affected` group in dependency order, `protected` host-owned
+plugins, `managerRunning`, `canApply`, `configRevision`, and `generation`, together
+with the instance `name`. It returns no configuration values and executes no setup
+or cleanup. A plan can be inspected before startup; applying requires a running
+manager. `canApply` describes those management constraints, not a guarantee that
+setup will succeed. The plan is advisory and may become stale; `configure()`
+rechecks current definitions and settings inside the serialized operation.
+
+With a configuration model, equality compares validated model values, including
+defaults and coercion. Without a model it compares JSON values independently of
+object key order, preserving value types. Equivalent settings cause no restart
+and increment neither revision nor generation. Raw JSON configuration remains
+private and is retained without serializing Pydantic secret fields into redacted
+placeholder values.
 
 ## Failure and cancellation behavior
 

@@ -90,7 +90,10 @@ def test_default_install_lists_active_plugins_without_config_and_no_management()
         response = client.get("/plugins")
 
         assert response.status_code == 200
-        assert response.json() == {
+        payload = response.json()
+        setup_ms = payload["plugins"][0]["lastSetupMs"]
+        assert isinstance(setup_ms, float) and setup_ms >= 0
+        assert payload == {
             "plugins": [
                 {
                     "name": "greeting",
@@ -104,6 +107,13 @@ def test_default_install_lists_active_plugins_without_config_and_no_management()
                     "inFlight": 0,
                     "error": None,
                     "blockedBy": [],
+                    "ownedTasks": 0,
+                    "taskFailures": 0,
+                    "configRevision": 0,
+                    "generation": 1,
+                    "lastSetupMs": setup_ms,
+                    "lastCleanupMs": None,
+                    "lastDrainMs": None,
                 }
             ]
         }
