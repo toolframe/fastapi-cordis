@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fastapi-cordis"
+version = "0.1.0"
+description = "Cordis-inspired plugin lifecycles and service leases for FastAPI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "byfb", email = "62798989+byfb@users.noreply.github.com"}]
+dependencies = ["fastapi>=0.135.2,<1", "pydantic>=2.12.5,<3"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.12,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+
+[tool.ruff]
+target-version = "py311"
