@@ -56,7 +56,7 @@ The formatter starts first even though it appears second in the list. The report
 stops first. A caller leasing the reporter also protects the formatter from being
 disposed before that call finishes.
 
-`requires` must be a tuple of registered plugin names. Names are unique, start with
+`requires` must be a tuple of registered plugin names or typed service keys. Names are unique, start with
 a letter, and contain only letters, digits, `_`, `.`, or `-`. Missing dependencies
 and cycles are rejected. An enabled plugin cannot initially depend on a disabled
 plugin; disabled definitions are still validated.
@@ -64,6 +64,40 @@ plugin; disabled definitions are still validated.
 Use `ctx.require(name)` only during setup, for a declared dependency. A plugin may
 retain that dependency in its returned service. Other runtime callers acquire
 services through `manager.lease(name)`.
+
+## Separate a service from its provider
+
+Use a `ServiceKey` when consumers should depend on an Interface instead of a
+specific implementation. The key contains a stable name and a class or
+`@runtime_checkable` Protocol. A provider declares `provides=KEY`; consumers
+declare `requires=(KEY,)` and call `ctx.require(KEY)`. Runtime callers use
+`manager.lease(KEY)`, and FastAPI routes can use `Depends(service(KEY))`.
+
+For example, `examples/services.py` defines a `Formatter` Protocol and a
+`ServiceKey("formatter", Formatter)`. Its unchanged reporter runs first with an
+uppercase provider, then with a lowercase provider:
+
+```sh
+uv run python examples/services.py
+```
+
+The output is `{'formatted': 'HELLO'}` followed by `{'formatted': 'hello'}`.
+Select the provider when constructing a manager; automatic live replacement of
+plugin definitions is not supported.
+
+Each plugin still returns one value and may declare one typed service key. Names
+cannot collide with another provider or another plugin's name. Consumers using
+the same service name must agree on its contract. The manager validates these
+definitions before setup and checks the returned service with `isinstance` before
+it becomes available. A contract failure triggers setup cleanup. Runtime Protocol
+checks verify member presence; static checking and behavior tests remain necessary
+to verify signatures and semantics.
+
+The manager resolves dependency order, leases, cascades, and restarts through the
+selected provider. Management operations still use the actual plugin name. A
+snapshot's `provides` identifies the stable service, and `requires` contains the
+resolved provider plugin names. Existing string references continue to work;
+strings can also refer to a provided service name.
 
 ## Register cleanup as resources are acquired
 

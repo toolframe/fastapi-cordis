@@ -15,6 +15,7 @@ implementation, not an official port. It does not run JavaScript Cordis plugins.
 ## What it provides
 
 - Explicit plugin definitions and optional Pydantic configuration validation.
+- Typed service keys that let callers keep the same contract when providers change.
 - Dependency-ordered startup and reverse-order cleanup, including failed setup.
 - Owned resource scopes, context managers, and cancellable background tasks.
 - Runtime enable, disable, and configuration replacement.

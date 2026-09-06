@@ -69,12 +69,16 @@ in the same task: that operation would wait for the lease you still hold.
 | `stopped` | Resources have been disposed |
 | `failed` | Setup or cleanup failed |
 
-Each snapshot contains `name`, `description`, `requires`, `enabled`, `managed`,
+Each snapshot contains `name`, `description`, `requires`, `provides`, `enabled`, `managed`,
 `state`, `inFlight`, and `error`. Configuration and service values are omitted.
 `enabled` records the desired flag; it does not prove readiness after a failure.
 Check `state` for availability. `inFlight` includes leases held through dependents.
 Errors use the codes `setup_failed` and `cleanup_failed`; callers or server logs
 receive the underlying exceptions.
+
+`provides` is the stable service name, or the plugin name when no service key is
+declared. `requires` lists the actual provider plugins selected by the manager.
+Typed service references use the same lease and drain behavior as named plugins.
 
 ## Failure and cancellation behavior
 

@@ -8,6 +8,8 @@ preserved. Installing a second manager on the same application raises `PluginErr
 ## Inject a service
 
 Use `Depends(service("name"))` in a route to receive a leased service value. The
+argument may also be a typed `ServiceKey`, such as `Depends(service(DATABASE))`.
+The
 dependency holds its lease for the request lifetime. If a registered service is
 unavailable, the request receives HTTP 503. Disabling a plugin leaves the route
 registered, so callers can retry after the service is enabled again.

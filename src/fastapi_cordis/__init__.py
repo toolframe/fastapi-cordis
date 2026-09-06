@@ -12,6 +12,7 @@ from ._runtime import (
     UnknownPlugin,
 )
 from ._scope import EffectScope
+from ._services import ServiceKey
 from .fastapi import install, plugin_router, service
 
 __version__ = "0.1.0"
@@ -25,6 +26,7 @@ __all__ = [
     "PluginError",
     "PluginManager",
     "PluginUnavailable",
+    "ServiceKey",
     "UnknownPlugin",
     "install",
     "plugin_router",
