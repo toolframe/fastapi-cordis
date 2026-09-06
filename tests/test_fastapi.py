@@ -97,6 +97,7 @@ def test_default_install_lists_active_plugins_without_config_and_no_management()
                     "description": "",
                     "requires": [],
                     "provides": "greeting",
+                    "scope": "",
                     "enabled": True,
                     "managed": True,
                     "state": "active",

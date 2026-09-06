@@ -16,13 +16,13 @@ from ._runtime import (
 from ._services import ServiceKey
 
 
-def service(name: str | ServiceKey[Any]):
+def service(name: str | ServiceKey[Any], *, scope: str = ""):
     """Use with Depends(service('name')); holds the lease through response work."""
 
     async def dependency(request: Request):
         manager: PluginManager = request.app.state.plugin_manager
         try:
-            with manager.lease(name) as value:
+            with manager.lease(name, scope=scope) as value:
                 yield value
         except PluginUnavailable as error:
             raise HTTPException(503, str(error)) from error
@@ -58,19 +58,19 @@ def plugin_router(
 
     if management:
 
-        @router.post("/{name}/enable")
+        @router.post("/{name:path}/enable")
         async def enable(name: str) -> dict[str, Any]:
             return await apply(manager.enable(name))
 
-        @router.post("/{name}/disable")
+        @router.post("/{name:path}/disable")
         async def disable(name: str, cascade: bool = False) -> dict[str, Any]:
             return await apply(manager.disable(name, cascade=cascade))
 
-        @router.post("/{name}/retry")
+        @router.post("/{name:path}/retry")
         async def retry(name: str) -> dict[str, Any]:
             return await apply(manager.retry(name))
 
-        @router.put("/{name}/config")
+        @router.put("/{name:path}/config")
         async def configure(name: str, config: dict[str, Any]) -> dict[str, Any]:
             return await apply(manager.configure(name, config))
 

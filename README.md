@@ -16,6 +16,7 @@ implementation, not an official port. It does not run JavaScript Cordis plugins.
 
 - Explicit plugin definitions and optional Pydantic configuration validation.
 - Typed service keys that let callers keep the same contract when providers change.
+- Multiple capabilities per plugin and scoped provider overrides.
 - Dependency-ordered startup and reverse-order cleanup, including failed setup.
 - Owned resource scopes, context managers, and cancellable background tasks.
 - Typed events with owned listeners and leases around running handlers.
@@ -146,6 +147,7 @@ These guides are included in the source checkout and source distribution:
 | `docs/plugins.md` | Authoring plugins, declaring dependencies, and cleaning up resources |
 | `docs/lifecycle.md` | Leases, state transitions, runtime changes, and failure recovery |
 | `docs/events.md` | Typed payloads, owned listeners, and asynchronous dispatch |
+| `docs/services.md` | Service contracts, multiple capabilities, and scoped providers |
 | `docs/fastapi.md` | Lifespan integration, HTTP behavior, and protected management routes |
 | `CONTRIBUTING.md` | Development, artifact checks, and preparation for a future release |
 

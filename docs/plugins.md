@@ -1,7 +1,8 @@
 # Writing plugins
 
-A plugin provides one named service. Its setup function receives a `PluginContext`
-and returns the value callers will use. Setup can be synchronous or asynchronous.
+A plugin owns resources and may provide one or more services. Its setup function
+receives a `PluginContext` and may return the value callers will use or explicitly
+publish declared service keys. Setup can be synchronous or asynchronous.
 
 ## Define a service and its configuration
 
@@ -100,6 +101,11 @@ selected provider. Management operations still use the actual plugin name. A
 snapshot's `provides` identifies the stable service, and `requires` contains the
 resolved provider plugin names. Existing string references continue to work;
 strings can also refer to a provided service name.
+
+For multiple capabilities, declare `provides=(KEY_A, KEY_B)` and call
+`ctx.provide(key, value)` for each during setup. Add `scope="work.a"` for a
+namespace that inherits ancestor providers and permits local replacements.
+See [service contracts and namespaces](services.md) for resolution and rebind rules.
 
 ## Register cleanup as resources are acquired
 

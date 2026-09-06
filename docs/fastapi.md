@@ -9,8 +9,9 @@ preserved. Installing a second manager on the same application raises `PluginErr
 
 Use `Depends(service("name"))` in a route to receive a leased service value. The
 argument may also be a typed `ServiceKey`, such as `Depends(service(DATABASE))`.
-The
-dependency holds its lease for the request lifetime. If a registered service is
+Select a namespace with `service(KEY, scope="work.a")`. Management routes accept
+qualified instance IDs, for example `POST /plugins/work.a/values/disable`.
+The dependency holds its lease for the request lifetime. If a registered service is
 unavailable, the request receives HTTP 503. Disabling a plugin leaves the route
 registered, so callers can retry after the service is enabled again.
 

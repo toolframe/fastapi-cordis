@@ -31,7 +31,14 @@ from ._errors import (
     UnknownPlugin,
 )
 from ._events import EventKey, _EventBus
-from ._graph import DependencyGraph, build_graph
+from ._graph import (
+    DependencyGraph,
+    build_graph,
+    provided_keys,
+    qualify,
+    reference_name,
+    resolve_provider,
+)
 from ._scope import _OWNER, EffectScope
 from ._services import ServiceKey
 
@@ -43,7 +50,7 @@ _MUTATING: ContextVar[tuple[Any, object] | None] = ContextVar(
 
 @dataclass(frozen=True)
 class Plugin:
-    """One named service. Setup returns its value and registers cleanup on ctx."""
+    """A plugin instance with declared capabilities and owned resources."""
 
     name: str
     setup: Callable[[PluginContext], Any]
@@ -53,17 +60,26 @@ class Plugin:
     enabled: bool = True
     managed: bool = True
     description: str = ""
-    provides: ServiceKey[Any] | None = None
+    provides: ServiceKey[Any] | tuple[ServiceKey[Any], ...] | None = None
+    scope: str = ""
+
+    @property
+    def id(self) -> str:
+        return qualify(self.scope, self.name)
 
 
 class PluginContext:
     def __init__(
         self, manager: PluginManager, plugin: Plugin, config: Any, stack: EffectScope
     ) -> None:
-        self.name = plugin.name
+        self.name = plugin.id
+        self.service_scope = plugin.scope
         self.config = config
         self._manager = manager
-        self._requires = manager._dependencies[plugin.name]
+        self._requires = manager._dependencies[plugin.id]
+        self._declared = plugin.requires
+        self._provides = provided_keys(plugin)
+        self._published: dict[str, Any] = {}
         self._stack = stack
         self._accepting = True
 
@@ -79,10 +95,22 @@ class PluginContext:
             raise PluginError(
                 "require() is only available during setup; use a lease at call time"
             )
-        provider = self._manager._resolve_service(name)
+        if reference_name(name) not in {reference_name(ref) for ref in self._declared}:
+            raise DependencyError(f"{self.name!r} did not declare dependency {name!r}")
+        provider = self._manager._resolve_service(name, scope=self.service_scope)
         if provider not in self._requires:
             raise DependencyError(f"{self.name!r} did not declare dependency {name!r}")
-        return self._manager._values[provider]
+        return self._manager._service_value(name, provider)
+
+    def provide(self, key: ServiceKey[T], value: T) -> None:
+        """Publish one declared capability during setup."""
+        if not self._accepting:
+            raise PluginError("Services must be provided during setup")
+        if key not in self._provides:
+            raise DependencyError(f"{self.name!r} did not declare this service")
+        if key.name in self._published:
+            raise DependencyError(f"Service {key.name!r} was already provided")
+        self._published[key.name] = key.validate(value)
 
     def on_dispose(
         self, callback: Callable[..., Any], *args: Any, **kwargs: Any
@@ -163,6 +191,7 @@ class PluginManager:
         self._state: dict[str, str] = {}
         self._errors: dict[str, str | None] = {}
         self._values: dict[str, Any] = {}
+        self._published: dict[str, dict[str, Any]] = {}
         self._stacks: dict[str, EffectScope] = {}
         self._counts: dict[str, int] = {}
         self._guard = threading.RLock()
@@ -175,14 +204,15 @@ class PluginManager:
         self._events = _EventBus()
         for plugin in plugins:
             self._validate_plugin(plugin)
-            if plugin.name in self._plugins:
-                raise DependencyError(f"Duplicate plugin: {plugin.name!r}")
-            self._plugins[plugin.name] = plugin
-            self._configs[plugin.name] = self._validate_config(plugin, plugin.config)
-            self._enabled[plugin.name] = plugin.enabled
-            self._state[plugin.name] = "registered" if plugin.enabled else "disabled"
-            self._errors[plugin.name] = None
-            self._counts[plugin.name] = 0
+            name = plugin.id
+            if name in self._plugins:
+                raise DependencyError(f"Duplicate plugin: {name!r}")
+            self._plugins[name] = plugin
+            self._configs[name] = self._validate_config(plugin, plugin.config)
+            self._enabled[name] = plugin.enabled
+            self._state[name] = "registered" if plugin.enabled else "disabled"
+            self._errors[name] = None
+            self._counts[name] = 0
         self._set_graph(build_graph(self._plugins))
         self._mark_blocked()
 
@@ -200,8 +230,28 @@ class PluginManager:
             isinstance(n, (str, ServiceKey)) for n in plugin.requires
         ):
             raise TypeError("Plugin requires must be a tuple of names or ServiceKeys")
-        if plugin.provides is not None and not isinstance(plugin.provides, ServiceKey):
-            raise TypeError("Plugin provides must be a ServiceKey")
+        if plugin.provides is not None and not (
+            isinstance(plugin.provides, ServiceKey)
+            or isinstance(plugin.provides, tuple)
+            and all(isinstance(key, ServiceKey) for key in plugin.provides)
+        ):
+            raise TypeError(
+                "Plugin provides must be a ServiceKey or tuple of ServiceKeys"
+            )
+        keys = provided_keys(plugin)
+        if len({key.name for key in keys}) != len(keys):
+            raise DependencyError("A plugin cannot declare duplicate service names")
+        PluginManager._validate_scope(plugin.scope)
+
+    @staticmethod
+    def _validate_scope(scope: str) -> None:
+        if not isinstance(scope, str) or (
+            scope
+            and not re.fullmatch(
+                r"[a-zA-Z][a-zA-Z0-9_-]*(?:\.[a-zA-Z][a-zA-Z0-9_-]*)*", scope
+            )
+        ):
+            raise ValueError("Scope must be empty or dot-separated namespace names")
 
     def _set_graph(self, graph: DependencyGraph) -> None:
         self._providers = graph.providers
@@ -209,17 +259,16 @@ class PluginManager:
         self._missing = graph.missing
         self._order = graph.order
 
-    def _resolve_service(self, reference: str | ServiceKey[Any]) -> str:
-        name = reference.name if isinstance(reference, ServiceKey) else reference
-        if name not in self._providers:
-            raise UnknownPlugin(name)
-        provider = self._providers[name]
-        if (
-            isinstance(reference, ServiceKey)
-            and self._plugins[provider].provides != reference
-        ):
-            raise DependencyError(f"Incompatible contract for service {name!r}")
-        return provider
+    def _resolve_service(
+        self, reference: str | ServiceKey[Any], *, scope: str = ""
+    ) -> str:
+        self._validate_scope(scope)
+        return resolve_provider(self._providers, self._plugins, reference, scope)
+
+    def _service_value(self, reference: str | ServiceKey[Any], provider: str) -> Any:
+        name = reference_name(reference).rsplit("/", 1)[-1]
+        published = self._published[provider]
+        return published[name] if name in published else self._values[provider]
 
     @staticmethod
     def _validate_config(plugin: Plugin, config: Mapping[str, Any]) -> dict[str, Any]:
@@ -261,11 +310,8 @@ class PluginManager:
                     "name": name,
                     "description": self._plugins[name].description,
                     "requires": list(self._dependencies[name]),
-                    "provides": (
-                        self._plugins[name].provides.name
-                        if self._plugins[name].provides is not None
-                        else name
-                    ),
+                    "provides": self._provided_names(name),
+                    "scope": self._plugins[name].scope,
                     "enabled": self._enabled[name],
                     "managed": self._plugins[name].managed,
                     "state": self._state[name],
@@ -283,23 +329,34 @@ class PluginManager:
             names.update(self._ancestors(dependency))
         return names
 
-    @overload
-    def lease(self, name: ServiceKey[T]) -> AbstractContextManager[T]: ...
+    def _provided_names(self, name: str) -> str | list[str]:
+        keys = provided_keys(self._plugins[name])
+        if not keys:
+            return self._plugins[name].name
+        if len(keys) == 1:
+            return keys[0].name
+        return [key.name for key in keys]
 
     @overload
-    def lease(self, name: str) -> AbstractContextManager[Any]: ...
+    def lease(
+        self, name: ServiceKey[T], *, scope: str = ""
+    ) -> AbstractContextManager[T]: ...
+
+    @overload
+    def lease(self, name: str, *, scope: str = "") -> AbstractContextManager[Any]: ...
 
     @contextmanager
-    def lease(self, name: str | ServiceKey[Any]) -> Iterator[Any]:
+    def lease(self, name: str | ServiceKey[Any], *, scope: str = "") -> Iterator[Any]:
         """Hold a service and all its dependencies until actual work has finished."""
         with self._guard:
-            name = self._resolve_service(name)
+            reference = name
+            name = self._resolve_service(reference, scope=scope)
             names = self._ancestors(name)
             if any(self._state[item] != "active" for item in names):
                 raise PluginUnavailable(name)
             for item in names:
                 self._counts[item] += 1
-            value = self._values[name]
+            value = self._service_value(reference, name)
         try:
             yield value
         finally:
@@ -376,8 +433,13 @@ class PluginManager:
             value = plugin.setup(context)
             if inspect.isawaitable(value):
                 value = await value
-            if plugin.provides is not None:
-                plugin.provides.validate(value)
+            keys = provided_keys(plugin)
+            if len(keys) == 1 and keys[0].name not in context._published:
+                context.provide(keys[0], value)
+            if any(key.name not in context._published for key in keys):
+                raise DependencyError(
+                    f"Plugin {name!r} did not provide all declared services"
+                )
         except BaseException as error:
             context._accepting = False
             with self._guard:
@@ -395,6 +457,7 @@ class PluginManager:
         with self._guard:
             self._stacks[name] = stack
             self._values[name] = value
+            self._published[name] = context._published
             self._state[name] = "active" if publish else "starting"
 
     async def _dispose(self, names: set[str]) -> None:
@@ -405,6 +468,7 @@ class PluginManager:
             stack = self._stacks.pop(name, None)
             with self._guard:
                 self._values.pop(name, None)
+                self._published.pop(name, None)
                 self._state[name] = "stopped"
             if stack is not None:
                 self._disposing.add(name)
@@ -426,6 +490,16 @@ class PluginManager:
             for item in self._order
             if self._state[item] == "active" and name in self._ancestors(item)
         }
+
+    def _changed_consumers(self, graph: DependencyGraph) -> set[str]:
+        affected: set[str] = set()
+        for name in self._plugins.keys() & graph.dependencies.keys():
+            if (
+                self._dependencies[name] != graph.dependencies[name]
+                or self._missing[name] != graph.missing[name]
+            ):
+                affected.update(self._active_dependents(name))
+        return affected
 
     async def _drain(self, names: set[str]) -> None:
         owner = _OWNER.get()
@@ -632,22 +706,29 @@ class PluginManager:
         """Add a definition and reconcile consumers waiting for its services."""
         self._validate_plugin(plugin)
         config = self._validate_config(plugin, plugin.config)
+        name = plugin.id
 
         async def operation() -> None:
             self._require_running()
-            if plugin.name in self._plugins:
-                raise DependencyError(f"Duplicate plugin: {plugin.name!r}")
-            candidate = {**self._plugins, plugin.name: plugin}
+            if name in self._plugins:
+                raise DependencyError(f"Duplicate plugin: {name!r}")
+            candidate = {**self._plugins, name: plugin}
             graph = build_graph(candidate)
+            affected = self._changed_consumers(graph)
+            for item in affected:
+                self._lookup(item, managed=True)
+            await self._drain(affected)
+            try:
+                await self._dispose(affected)
+            finally:
+                self._mark_blocked()
             with self._guard:
                 self._plugins = candidate
-                self._configs[plugin.name] = config
-                self._enabled[plugin.name] = plugin.enabled
-                self._state[plugin.name] = (
-                    "registered" if plugin.enabled else "disabled"
-                )
-                self._errors[plugin.name] = None
-                self._counts[plugin.name] = 0
+                self._configs[name] = config
+                self._enabled[name] = plugin.enabled
+                self._state[name] = "registered" if plugin.enabled else "disabled"
+                self._errors[name] = None
+                self._counts[name] = 0
                 self._set_graph(graph)
             await self._reconcile()
 
@@ -663,7 +744,7 @@ class PluginManager:
                 key: value for key, value in self._plugins.items() if key != name
             }
             graph = build_graph(candidate)
-            names = self._active_dependents(name)
+            names = self._active_dependents(name) | self._changed_consumers(graph)
             for item in names:
                 self._lookup(item, managed=True)
             await self._drain(names)
