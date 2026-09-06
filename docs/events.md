@@ -4,6 +4,8 @@ An `EventKey[T]` gives an in-process event a name and a runtime payload type.
 Use a dataclass, Pydantic model, ordinary class, or runtime-checkable Protocol.
 The key checks `isinstance`; it does not coerce payloads or validate method
 signatures. A name keeps the same payload contract for the manager's lifetime.
+Events reach listeners across the manager; service namespaces do not filter
+delivery. Include application routing data in the payload when needed.
 
 ```python
 from dataclasses import dataclass
@@ -50,9 +52,11 @@ failures are aggregated only after peers finish, and leases are released on both
 failure and cancellation. Cancelling emission cancels its handlers and waits for
 their cancellation cleanup, including when the caller is cancelled repeatedly.
 
-A handler cannot stop, remove, or reconfigure itself or its dependencies while
-its invocation holds those leases; the manager raises `PluginError`. Make that
-management decision after emission completes. Payload validation errors omit
+A handler cannot stop, remove, or reconfigure itself, its dependencies, or a
+plugin waiting for that handler through `ctx.emit()`. The manager tracks this
+ownership through nested emissions and raises `PluginError` for operations that
+would wait on their own callers. Make that management decision after emission
+completes. Payload validation errors omit
 payload values. Handler exceptions propagate to the emitter in an exception group.
 
 This interface provides no persistence, cross-process delivery, retries, or

@@ -336,3 +336,88 @@ class PluginEventTests(IsolatedAsyncioTestCase):
                     await manager.emit(key, 1)
             assert isinstance(failure.value.exceptions[0], PluginError)
             assert manager.snapshot()[0]["state"] == "active"
+
+    async def test_nested_handlers_cannot_stop_waiting_emitters(self):
+        outer = EventKey("outer", int)
+        inner = EventKey("inner", int)
+        sources = []
+        seen = []
+
+        def relay(ctx):
+            ctx.on(outer, lambda value: ctx.emit(inner, value))
+
+        def listener(ctx):
+            async def handle(value):
+                for name in ("source", "relay"):
+                    with pytest.raises(PluginError, match="own plugin"):
+                        await manager.disable(name)
+                    with pytest.raises(PluginError, match="own plugin"):
+                        await manager.configure(name, {"changed": True})
+                    with pytest.raises(PluginError, match="own plugin"):
+                        await manager.unregister(name)
+                seen.append(value)
+
+            ctx.on(inner, handle)
+
+        manager = PluginManager(
+            [
+                Plugin("source", sources.append),
+                Plugin("relay", relay),
+                Plugin("listener", listener),
+            ],
+            drain_timeout=0.01,
+        )
+        async with manager.lifespan():
+            await sources[0].emit(outer, 1)
+            assert seen == [1]
+            assert all(item["state"] == "active" for item in manager.snapshot())
+            assert all(item["inFlight"] == 0 for item in manager.snapshot())
+
+    async def test_completed_emission_does_not_constrain_later_owned_work(self):
+        key = EventKey("deferred", int)
+        sources = []
+        work = []
+        release = asyncio.Event()
+
+        def listener(ctx):
+            async def later():
+                await release.wait()
+                await manager.disable("source")
+
+            ctx.on(key, lambda value: work.append(ctx.task(later())))
+
+        manager = PluginManager(
+            [Plugin("source", sources.append), Plugin("listener", listener)]
+        )
+        async with manager.lifespan():
+            await sources[0].emit(key, 1)
+            release.set()
+            await work[0]
+            assert manager.snapshot()[0]["state"] == "disabled"
+
+    async def test_dispatch_preserves_background_task_ownership(self):
+        key = EventKey("background", int)
+        release = asyncio.Event()
+        jobs = []
+
+        def source(ctx):
+            async def emit():
+                await release.wait()
+                await manager.emit(key, 1)
+
+            jobs.append(ctx.task(emit()))
+
+        def listener(ctx):
+            async def handle(value):
+                with pytest.raises(PluginError, match="own plugin"):
+                    await manager.disable("source")
+
+            ctx.on(key, handle)
+
+        manager = PluginManager(
+            [Plugin("source", source), Plugin("listener", listener)],
+            drain_timeout=0.01,
+        )
+        async with manager.lifespan():
+            release.set()
+            await jobs[0]

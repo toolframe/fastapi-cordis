@@ -50,6 +50,18 @@ _MUTATING: ContextVar[tuple[Any, object] | None] = ContextVar(
 
 
 @dataclass
+class _Invocation:
+    manager: PluginManager
+    name: str
+    active: bool = True
+
+
+_INVOKING: ContextVar[tuple[_Invocation, ...]] = ContextVar(
+    "cordis_invocations", default=()
+)
+
+
+@dataclass
 class _Stats:
     config_revision: int = 0
     generation: int = 0
@@ -168,13 +180,12 @@ class PluginContext:
                 lease.__enter__()
             except PluginUnavailable:
                 return
-            token = _OWNER.set((self._manager, self.name))
             try:
-                result = callback(payload)
-                if inspect.isawaitable(result):
-                    await result
+                with self._manager._invocation(self.name):
+                    result = callback(payload)
+                    if inspect.isawaitable(result):
+                        await result
             finally:
-                _OWNER.reset(token)
                 lease.__exit__(None, None, None)
 
         remove = self._manager._events.on(event, invoke)
@@ -182,12 +193,8 @@ class PluginContext:
 
     async def emit(self, event: EventKey[T], payload: T) -> None:
         self._stack._check_open()
-        with self._manager.lease(self.name):
-            token = _OWNER.set((self._manager, self.name))
-            try:
-                await self._manager.emit(event, payload)
-            finally:
-                _OWNER.reset(token)
+        with self._manager.lease(self.name), self._manager._invocation(self.name):
+            await self._manager.emit(event, payload)
 
 
 class PluginManager:
@@ -442,9 +449,32 @@ class PluginManager:
             raise PluginError(f"Plugin {name!r} is owned by the host")
         return plugin
 
+    @contextmanager
+    def _invocation(self, name: str):
+        invocation = _Invocation(self, name)
+        # Tasks inherit the chain, but completed calls must not constrain work
+        # that outlives the dispatch. Entries expire across copied contexts.
+        chain = tuple(item for item in _INVOKING.get() if item.active)
+        token = _INVOKING.set((*chain, invocation))
+        try:
+            yield
+        finally:
+            invocation.active = False
+            _INVOKING.reset(token)
+
+    def _owned_names(self) -> set[str]:
+        names = {
+            item.name
+            for item in _INVOKING.get()
+            if item.active and item.manager is self
+        }
+        owner = _OWNER.get()
+        if owner is not None and owner[0] is self:
+            names.add(owner[1])
+        return names
+
     async def _atomic(self, operation: Callable[[], Any]) -> Any:
-        work = _OWNER.get()
-        if work is not None and work[0] is self and work[1] in self._disposing:
+        if self._owned_names() & self._disposing:
             raise PluginError("Owned work cannot mutate its manager during disposal")
         owner = _MUTATING.get()
         if owner is not None and owner[0] is self and owner[1] is self._operation_token:
@@ -588,8 +618,7 @@ class PluginManager:
         return affected
 
     async def _drain(self, names: set[str]) -> None:
-        owner = _OWNER.get()
-        if owner is not None and owner[0] is self and owner[1] in names:
+        if self._owned_names() & names:
             raise PluginError("Owned work cannot stop its own plugin or dependencies")
         started_at = time.perf_counter()
         with self._guard:
