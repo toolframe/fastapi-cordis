@@ -1,16 +1,143 @@
 # fastapi-cordis
 
-Independent, Cordis-inspired plugin service lifecycles for Python asyncio
-applications. Define service setup, dependencies, configuration, and cleanup;
-callers hold leases while using resources.
+An independent Python library for managing plugin services in FastAPI and asyncio
+applications. Define how each service starts, which other services it needs, and
+how it closes. The runtime handles ordering and waits for callers before disposing
+resources.
 
-Development package; not yet published to PyPI. Python 3.11+ is required.
+**Status: in development; not yet published to PyPI.** The distribution name is
+`fastapi-cordis` and the Python import is `fastapi_cordis`. Until a public release,
+install from source or a locally built wheel.
 
-From the repository root:
+Inspired by [Cordis](https://github.com/cordiverse/cordis), this is an independent
+implementation, not an official port. It does not run JavaScript Cordis plugins.
+
+## What it provides
+
+- Explicit plugin definitions and optional Pydantic configuration validation.
+- Dependency-ordered startup and reverse-order cleanup, including failed setup.
+- Runtime enable, disable, and configuration replacement.
+- Service leases that protect resources and their dependencies during async or
+  worker-thread calls.
+- FastAPI lifespan integration, service injection, and optional management routes.
+- An asyncio lifecycle API for applications without an HTTP server.
+
+## Requirements and installation
+
+Python 3.11+ and asyncio are required. The package depends on FastAPI 0.135.2+
+and Pydantic 2.12.5+; `pyproject.toml` defines the supported version ranges.
+
+From the root of this source checkout:
+
+```sh
+python -m pip install .
+```
+
+For development, install the package and test tools together:
 
 ```sh
 uv sync --python 3.14
-uv run pytest
 ```
 
-MIT License. See `LICENSE`.
+To build and install a local distribution:
+
+```sh
+uv build
+python -m pip install dist/fastapi_cordis-0.1.0-py3-none-any.whl
+```
+
+Building these files does not publish them.
+
+## Quick start
+
+Save this as `demo.py` after installing the package:
+
+```python
+from collections.abc import Callable
+from typing import Annotated
+
+from fastapi import Depends, FastAPI
+from fastapi_cordis import Plugin, PluginContext, PluginManager, install, service
+from pydantic import BaseModel, ConfigDict
+
+
+class GreetingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prefix: str = "Hello"
+
+
+async def greeting(ctx: PluginContext):
+    return lambda name: f"{ctx.config.prefix}, {name}"
+
+
+manager = PluginManager(
+    [Plugin("greeting", greeting, config_model=GreetingConfig)]
+)
+app = FastAPI()
+install(app, manager)
+
+
+@app.get("/hello/{name}")
+async def hello(
+    name: str,
+    greet: Annotated[Callable[[str], str], Depends(service("greeting"))],
+):
+    return {"message": greet(name)}
+```
+
+Install an ASGI server and start the app:
+
+```sh
+python -m pip install uvicorn
+python -m uvicorn demo:app --host 127.0.0.1
+```
+
+`GET /hello/Ada` returns `{"message":"Hello, Ada"}`. `GET /plugins` reports the
+plugin's state. `install` starts plugins before the existing application lifespan
+and closes them after it. `service("greeting")` holds a lease while the request
+uses the service, so a concurrent stop waits for that request to finish.
+
+The source checkout also includes `examples/app.py`, which enables management
+writes for local experimentation:
+
+```sh
+uv run --with uvicorn uvicorn examples.app:app --host 127.0.0.1
+```
+
+## Runtime management
+
+Use `install(app, manager, management=True)` to enable mutation routes. The host
+application supplies authentication and authorization for these routes.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /plugins` | List states, dependencies, and in-flight counts |
+| `POST /plugins/{name}/enable` | Start a plugin whose dependencies are active |
+| `POST /plugins/{name}/disable` | Stop a plugin; reject active dependents |
+| `POST /plugins/{name}/disable?cascade=true` | Stop its active dependents too |
+| `PUT /plugins/{name}/config` | Validate replacement configuration and restart the affected active plugins |
+
+Configuration values and service objects are omitted from diagnostics. Runtime
+changes stay in this manager; the host owns persistence and coordination across
+processes. After a cascading disable, enable providers before their dependents.
+
+## Scope and documentation
+
+The runtime manages trusted Python services on one owning asyncio event loop.
+Callers must use leases correctly; leases do not make a service itself thread-safe.
+Package installation, automatic discovery, source reloads, database migrations,
+plugin isolation, and coordination between server workers belong to the host.
+Disabling a plugin does not remove its HTTP routes.
+
+These guides are included in the source checkout and source distribution:
+
+| Document | Covers |
+| --- | --- |
+| `docs/plugins.md` | Authoring plugins, declaring dependencies, and cleaning up resources |
+| `docs/lifecycle.md` | Leases, state transitions, runtime changes, and failure recovery |
+| `docs/fastapi.md` | Lifespan integration, HTTP behavior, and protected management routes |
+| `CONTRIBUTING.md` | Development, artifact checks, and preparation for a future release |
+
+## License
+
+MIT. See `LICENSE` in the source distribution or the license included in the wheel.
