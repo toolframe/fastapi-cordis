@@ -18,6 +18,7 @@ implementation, not an official port. It does not run JavaScript Cordis plugins.
 - Typed service keys that let callers keep the same contract when providers change.
 - Dependency-ordered startup and reverse-order cleanup, including failed setup.
 - Owned resource scopes, context managers, and cancellable background tasks.
+- Typed events with owned listeners and leases around running handlers.
 - Reactive dependency recovery, runtime registration, and configuration replacement.
 - Service leases that protect resources and their dependencies during async or
   worker-thread calls.
@@ -144,6 +145,7 @@ These guides are included in the source checkout and source distribution:
 | --- | --- |
 | `docs/plugins.md` | Authoring plugins, declaring dependencies, and cleaning up resources |
 | `docs/lifecycle.md` | Leases, state transitions, runtime changes, and failure recovery |
+| `docs/events.md` | Typed payloads, owned listeners, and asynchronous dispatch |
 | `docs/fastapi.md` | Lifespan integration, HTTP behavior, and protected management routes |
 | `CONTRIBUTING.md` | Development, artifact checks, and preparation for a future release |
 

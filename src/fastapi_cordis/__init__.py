@@ -1,5 +1,6 @@
 """Small, explicit Cordis-inspired plugin runtime; no JavaScript compatibility."""
 
+from ._events import EventKey
 from ._runtime import (
     ConfigurationError,
     DependencyError,
@@ -21,6 +22,7 @@ __all__ = [
     "DependencyError",
     "DrainTimeout",
     "EffectScope",
+    "EventKey",
     "Plugin",
     "PluginContext",
     "PluginError",

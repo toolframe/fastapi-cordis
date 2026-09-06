@@ -30,6 +30,7 @@ from ._errors import (
     PluginUnavailable,
     UnknownPlugin,
 )
+from ._events import EventKey, _EventBus
 from ._graph import DependencyGraph, build_graph
 from ._scope import _OWNER, EffectScope
 from ._services import ServiceKey
@@ -104,6 +105,43 @@ class PluginContext:
     def scope(self) -> EffectScope:
         return self._stack.scope()
 
+    def on(self, event: EventKey[T], callback: Callable[[T], Any]):
+        """Register an owned handler whose invocations lease this plugin."""
+        self._stack._check_open()
+        if not callable(callback):
+            raise TypeError("Event handler must be callable")
+
+        async def invoke(payload: T) -> None:
+            # A bus dispatch snapshots handlers. Re-check generation and state
+            # before admitting work in case an earlier callback changed them.
+            if not self._stack._is_open():
+                return
+            try:
+                lease = self._manager.lease(self.name)
+                lease.__enter__()
+            except PluginUnavailable:
+                return
+            token = _OWNER.set((self._manager, self.name))
+            try:
+                result = callback(payload)
+                if inspect.isawaitable(result):
+                    await result
+            finally:
+                _OWNER.reset(token)
+                lease.__exit__(None, None, None)
+
+        remove = self._manager._events.on(event, invoke)
+        return self.on_dispose(remove)
+
+    async def emit(self, event: EventKey[T], payload: T) -> None:
+        self._stack._check_open()
+        with self._manager.lease(self.name):
+            token = _OWNER.set((self._manager, self.name))
+            try:
+                await self._manager.emit(event, payload)
+            finally:
+                _OWNER.reset(token)
+
 
 class PluginManager:
     """One asyncio loop owns mutations; any thread may hold synchronous leases.
@@ -134,6 +172,7 @@ class PluginManager:
         self._running = False
         self._operation_token: object | None = None
         self._disposing: set[str] = set()
+        self._events = _EventBus()
         for plugin in plugins:
             self._validate_plugin(plugin)
             if plugin.name in self._plugins:
@@ -416,6 +455,13 @@ class PluginManager:
     def _require_running(self) -> None:
         if not self._running:
             raise PluginError("PluginManager has not started")
+
+    async def emit(self, event: EventKey[T], payload: T) -> None:
+        """Dispatch to active handlers, awaiting all callbacks and their leases."""
+        self._require_running()
+        if asyncio.get_running_loop() is not self._loop:
+            raise PluginError("PluginManager belongs to another event loop")
+        await self._events.emit(event, payload)
 
     def _blocked_by(self, name: str) -> list[str]:
         return [

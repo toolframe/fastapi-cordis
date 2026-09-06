@@ -180,8 +180,14 @@ does not discover arbitrary tasks or stop Python threads.
 Do not await lifecycle mutations on the same manager from setup or cleanup:
 recursive mutations raise `PluginError` instead of waiting for their own operation.
 An owned task or cleanup callback must not close its own resource scope.
+Owned work also cannot stop its own plugin or dependencies, including from task
+cancellation cleanup; the manager rejects these operations before waiting.
 Lease bookkeeping supports callers in worker threads, but the service must itself
 support whichever concurrency the application permits.
+
+Use `ctx.on(EventKey(...), callback)` for a listener that follows the plugin's
+lifetime and `await ctx.emit(key, payload)` for asynchronous dispatch. See
+[typed events](events.md) for lease protection and failure semantics.
 
 ## Distribute reusable plugins
 
