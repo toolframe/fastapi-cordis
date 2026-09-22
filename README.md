@@ -161,6 +161,7 @@ These guides are included in the source checkout and source distribution:
 | `docs/services.md` | Service contracts, multiple capabilities, and scoped providers |
 | `docs/fastapi.md` | Lifespan integration, HTTP behavior, and protected management routes |
 | `CONTRIBUTING.md` | Development, artifact checks, and preparation for a future release |
+| `docs/ci.md` | Isolated local CI, Python matrix, and manual TestPyPI/PyPI publishing |
 | `CHANGELOG.md` | Version changes and migration from 0.1.0 |
 
 ## License

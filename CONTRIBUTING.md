@@ -15,18 +15,18 @@ uv run ruff format --check src tests examples
 ```
 
 Python 3.11 is the minimum supported version. Check the built wheel on that
-version as well as the development interpreter:
+version as well as the development interpreter. The shared CI script runs lint,
+format, tests, builds, strict metadata checks, and clean wheel/sdist installations:
 
 ```sh
-uv build
-uv run --no-project --python 3.11 \
-  --with ./dist/fastapi_cordis-0.2.0-py3-none-any.whl \
-  --with pytest --with httpx python -m pytest tests
+./scripts/ci.sh 3.11
+./scripts/ci.sh 3.14
 ```
 
-The filename above matches the current development version. Adjust it when the
-version changes. `uv build` creates a wheel and source distribution locally; it
-does not upload them.
+Each invocation starts with fresh temporary environments. CI also checks Python
+3.12 and 3.13. See [CI and package publishing](docs/ci.md) for the full matrix,
+artifact retention, workflow validation, and external release settings. Local
+verification does not upload anything.
 
 ## Keep the package boundary clear
 
@@ -64,8 +64,9 @@ or instructions implying an unpublished package is already available on PyPI.
 
 ## Prepare a future release
 
-The package has not been published, and this repository does not currently include
-an automatic publishing workflow. Publishing is a separate maintainer action.
+The package has not been published. The manual `publish.yml` workflow defaults to
+TestPyPI, requires a `v<project.version>` tag, and publishes only after its complete
+CI matrix passes. Publishing is a separate maintainer action.
 
 Before the first release, confirm the distribution name on the target index and
 add the actual public repository and documentation URLs to project metadata.
@@ -73,6 +74,7 @@ Review the supported dependency ranges, align `pyproject.toml` with `__version__
 record release changes, and update installation guidance when a release is
 available. Test and inspect the exact artifacts intended for distribution.
 
-Configure release credentials or trusted publishing outside the source tree.
+Configure the GitHub environments and Trusted Publishers described in
+[the publishing guide](docs/ci.md) outside the source tree.
 Ordinary development, documentation updates, and local builds do not require an
 upload, release tag, or publishing credentials.
