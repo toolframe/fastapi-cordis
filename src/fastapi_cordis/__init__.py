@@ -16,7 +16,7 @@ from ._scope import EffectScope
 from ._services import ServiceKey
 from .fastapi import install, plugin_router, service
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 __all__ = [
     "ConfigurationError",
     "DependencyError",

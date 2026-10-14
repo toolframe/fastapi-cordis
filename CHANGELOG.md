@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 — 2026-10-14 (PyPI)
+
+- Publish the first release on the production PyPI index.
+- Document direct installation with `pip install fastapi-cordis`.
+- Runtime behavior and dependencies are unchanged from 0.2.1.
+
 ## 0.2.1 — 2026-10-14 (TestPyPI)
 
 - Set distribution author and copyright attribution to `byfb`.
