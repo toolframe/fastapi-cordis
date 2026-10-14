@@ -5,9 +5,8 @@ applications. Define how each service starts, which other services it needs, and
 how it closes. The runtime handles ordering and waits for callers before disposing
 resources.
 
-**Status: experimental.** The package is available on
-[PyPI](https://pypi.org/project/fastapi-cordis/). The distribution name is
-`fastapi-cordis` and the Python import is `fastapi_cordis`.
+The distribution name is `fastapi-cordis` and the Python import is
+`fastapi_cordis`.
 
 Inspired by [Cordis](https://github.com/cordiverse/cordis), this is an independent
 implementation, not an official port. It does not run JavaScript Cordis plugins.
@@ -32,7 +31,7 @@ implementation, not an official port. It does not run JavaScript Cordis plugins.
 Python 3.11+ and asyncio are required. The package depends on FastAPI 0.135.2+
 and Pydantic 2.12.5+; `pyproject.toml` defines the supported version ranges.
 
-Install from PyPI in a virtual environment:
+Install from [PyPI](https://pypi.org/project/fastapi-cordis/) in a virtual environment:
 
 ```sh
 python -m venv .venv
