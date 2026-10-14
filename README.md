@@ -179,3 +179,5 @@ These guides are included in the source checkout and source distribution:
 ## License
 
 MIT. See `LICENSE` in the source distribution or the license included in the wheel.
+
+For development hooks and contribution rules, see [Contributing](CONTRIBUTING.md).
