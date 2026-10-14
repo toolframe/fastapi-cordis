@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-10-14 (TestPyPI)
 
-This development version extends the runtime with reactive dependencies and
-owned effects. It remains an independent Cordis-inspired Python implementation.
+This experimental TestPyPI release extends the runtime with reactive dependencies
+and owned effects. It remains an independent Cordis-inspired Python implementation.
+This release is not published to the production PyPI index.
 
 ### Added
 

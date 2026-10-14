@@ -5,9 +5,9 @@ applications. Define how each service starts, which other services it needs, and
 how it closes. The runtime handles ordering and waits for callers before disposing
 resources.
 
-**Status: in development; not yet published to PyPI.** The distribution name is
-`fastapi-cordis` and the Python import is `fastapi_cordis`. Until a public release,
-install from source or a locally built wheel.
+**Status: experimental TestPyPI release.** Version `0.2.0` is intended for testing;
+there is no production PyPI release. The distribution name is `fastapi-cordis`
+and the Python import is `fastapi_cordis`.
 
 Inspired by [Cordis](https://github.com/cordiverse/cordis), this is an independent
 implementation, not an official port. It does not run JavaScript Cordis plugins.
@@ -32,7 +32,23 @@ implementation, not an official port. It does not run JavaScript Cordis plugins.
 Python 3.11+ and asyncio are required. The package depends on FastAPI 0.135.2+
 and Pydantic 2.12.5+; `pyproject.toml` defines the supported version ranges.
 
-From the root of this source checkout:
+Install the [TestPyPI release](https://test.pypi.org/project/fastapi-cordis/0.2.0/)
+in a virtual environment. Download this package from TestPyPI, then install its
+wheel with runtime dependencies from the normal PyPI index:
+
+```sh
+python -m venv .venv
+source .venv/bin/activate
+python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --dest dist fastapi-cordis==0.2.0
+python -m pip install --index-url https://pypi.org/simple/ dist/fastapi_cordis-0.2.0-py3-none-any.whl
+```
+
+On Windows, activate with `.venv\Scripts\Activate.ps1` in PowerShell instead.
+TestPyPI is for testing and may remove packages; it is not a production index.
+The source archive on the release page includes the guides, examples, and tests.
+Cloning the GitHub repository requires repository access.
+
+Alternatively, from the root of a source checkout:
 
 ```sh
 python -m pip install .
@@ -160,7 +176,7 @@ These guides are included in the source checkout and source distribution:
 | `docs/events.md` | Typed payloads, owned listeners, and asynchronous dispatch |
 | `docs/services.md` | Service contracts, multiple capabilities, and scoped providers |
 | `docs/fastapi.md` | Lifespan integration, HTTP behavior, and protected management routes |
-| `CONTRIBUTING.md` | Development, artifact checks, and preparation for a future release |
+| `CONTRIBUTING.md` | Development, artifact checks, and release preparation |
 | `docs/ci.md` | Isolated local CI, Python matrix, and manual TestPyPI/PyPI publishing |
 | `CHANGELOG.md` | Version changes and migration from 0.1.0 |
 

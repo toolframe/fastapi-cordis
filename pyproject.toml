@@ -12,6 +12,9 @@ license = "MIT"
 authors = [{name = "byfb", email = "62798989+byfb@users.noreply.github.com"}]
 dependencies = ["fastapi>=0.135.2,<1", "pydantic>=2.12.5,<3"]
 
+[project.urls]
+Repository = "https://github.com/toolframe/fastapi-cordis"
+
 [dependency-groups]
 dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.12,<1"]
 

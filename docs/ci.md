@@ -88,7 +88,7 @@ Before a maintainer publishes:
 4. Ensure `.github/workflows/publish.yml` is on the default branch so GitHub can
    dispatch it, and ensure the release tag includes these workflows and scripts.
 
-## Run a future release
+## Run a release
 
 Before tagging, align `project.version`, `fastapi_cordis.__version__`, release
 notes, and the installation documentation; review metadata and dependency ranges.

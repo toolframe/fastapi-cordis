@@ -58,18 +58,19 @@ After building, inspect the artifacts in `dist/`:
 - The source distribution includes the README, guides, examples, and tests needed
   to develop and understand the package independently.
 
-The README is also the future PyPI description. Keep it self-contained and avoid
+The README is also the package index description. Keep it self-contained and avoid
 machine-specific paths, required sibling repositories, placeholder project URLs,
 or instructions implying an unpublished package is already available on PyPI.
 
-## Prepare a future release
+## Prepare a release
 
-The package has not been published. The manual `publish.yml` workflow defaults to
-TestPyPI, requires a `v<project.version>` tag, and publishes only after its complete
-CI matrix passes. Publishing is a separate maintainer action.
+The manual `publish.yml` workflow defaults to TestPyPI, requires a
+`v<project.version>` tag, and publishes only after its complete CI matrix passes.
+Publishing is a separate maintainer action. A TestPyPI release does not publish
+the package to the production PyPI index.
 
-Before the first release, confirm the distribution name on the target index and
-add the actual public repository and documentation URLs to project metadata.
+Before a release, confirm the distribution name and version on the target index
+and review the repository and documentation URLs in project metadata.
 Review the supported dependency ranges, align `pyproject.toml` with `__version__`,
 record release changes, and update installation guidance when a release is
 available. Test and inspect the exact artifacts intended for distribution.
