@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 — 2026-10-14 (TestPyPI)
+
+- Set distribution author and copyright attribution to `byfb`.
+- Runtime behavior and dependencies are unchanged from 0.2.0.
+
 ## 0.2.0 — 2026-10-14 (TestPyPI)
 
 This experimental TestPyPI release extends the runtime with reactive dependencies

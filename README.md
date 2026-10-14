@@ -5,7 +5,7 @@ applications. Define how each service starts, which other services it needs, and
 how it closes. The runtime handles ordering and waits for callers before disposing
 resources.
 
-**Status: experimental TestPyPI release.** Version `0.2.0` is intended for testing;
+**Status: experimental TestPyPI release.** Version `0.2.1` is intended for testing;
 there is no production PyPI release. The distribution name is `fastapi-cordis`
 and the Python import is `fastapi_cordis`.
 
@@ -32,15 +32,15 @@ implementation, not an official port. It does not run JavaScript Cordis plugins.
 Python 3.11+ and asyncio are required. The package depends on FastAPI 0.135.2+
 and Pydantic 2.12.5+; `pyproject.toml` defines the supported version ranges.
 
-Install the [TestPyPI release](https://test.pypi.org/project/fastapi-cordis/0.2.0/)
+Install the [TestPyPI release](https://test.pypi.org/project/fastapi-cordis/0.2.1/)
 in a virtual environment. Download this package from TestPyPI, then install its
 wheel with runtime dependencies from the normal PyPI index:
 
 ```sh
 python -m venv .venv
 source .venv/bin/activate
-python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --dest dist fastapi-cordis==0.2.0
-python -m pip install --index-url https://pypi.org/simple/ dist/fastapi_cordis-0.2.0-py3-none-any.whl
+python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --dest dist fastapi-cordis==0.2.1
+python -m pip install --index-url https://pypi.org/simple/ dist/fastapi_cordis-0.2.1-py3-none-any.whl
 ```
 
 On Windows, activate with `.venv\Scripts\Activate.ps1` in PowerShell instead.
@@ -64,7 +64,7 @@ To build and install a local distribution:
 
 ```sh
 uv build
-python -m pip install dist/fastapi_cordis-0.2.0-py3-none-any.whl
+python -m pip install dist/fastapi_cordis-0.2.1-py3-none-any.whl
 ```
 
 Building these files does not publish them.

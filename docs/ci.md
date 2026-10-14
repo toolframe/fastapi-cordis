@@ -92,18 +92,18 @@ Before a maintainer publishes:
 
 Before tagging, align `project.version`, `fastapi_cordis.__version__`, release
 notes, and the installation documentation; review metadata and dependency ranges.
-The current version is `0.2.0`, so the required tag is exactly `v0.2.0`. Branches,
+The current version is `0.2.1`, so the required tag is exactly `v0.2.1`. Branches,
 unprefixed tags, and tags for any other version are rejected before validation.
-`python scripts/check_release.py refs/tags/v0.2.0` checks this guard locally.
+`python scripts/check_release.py refs/tags/v0.2.1` checks this guard locally.
 
 A maintainer creates and pushes the tag, then manually dispatches **Publish** on
 that tag. The `target` choice defaults to `testpypi`. For example, these commands
 run remote publishing after the external setup has been completed:
 
 ```sh
-gh workflow run publish.yml --ref v0.2.0 -f target=testpypi
+gh workflow run publish.yml --ref v0.2.1 -f target=testpypi
 # After reviewing the TestPyPI result, a separate explicit production dispatch:
-gh workflow run publish.yml --ref v0.2.0 -f target=pypi
+gh workflow run publish.yml --ref v0.2.1 -f target=pypi
 ```
 
 The publish run checks out its exact event SHA, checks the version tag, and calls
