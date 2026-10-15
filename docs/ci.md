@@ -54,9 +54,9 @@ bash -n scripts/ci.sh
 
 ## GitHub Actions
 
-`ci.yml` runs on pull requests, pushes, manual dispatch, and reusable workflow
-calls. Its Python 3.11, 3.12, 3.13, and 3.14 matrix runs the same local script on
-the documented [`ubuntu-24.04` runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+`ci.yml` runs on pull requests, pushes to `main`, manual dispatch, and reusable
+workflow calls. Its Python 3.11, 3.12, 3.13, and 3.14 matrix runs the same local
+script on the documented [`ubuntu-24.04` runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 Every cell builds and installs both artifacts. The Python 3.11 cell saves the
 validated distributions as `distributions-<commit SHA>` for seven days.
 
@@ -113,8 +113,8 @@ download this run's validated Python 3.11 artifacts and upload them with the
 not rebuild in the publishing job or download artifacts from a different run.
 Only that final job receives `id-token: write`, with the selected GitHub
 environment, for Trusted Publishing and the action's attestations. Existing
-versions are not silently skipped. A tag push by itself runs CI; it does not
-publish.
+versions are not silently skipped. A tag push by itself does not run CI or
+publish; the manual publishing workflow runs validation for the selected tag.
 
 TestPyPI and PyPI are separate indexes. A successful TestPyPI upload does not
 configure or release to PyPI. TestPyPI may lack runtime dependencies, so any
