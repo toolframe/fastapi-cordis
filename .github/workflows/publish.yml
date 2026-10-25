@@ -2,21 +2,12 @@ name: Publish
 
 on:
   workflow_dispatch:
-    inputs:
-      target:
-        description: Package index (run this workflow on a v<project.version> tag)
-        type: choice
-        required: true
-        default: testpypi
-        options:
-          - testpypi
-          - pypi
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-release-${{ inputs.target }}-${{ github.ref }}
+  group: publish-release-pypi-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -37,8 +28,7 @@ jobs:
       - name: Require the exact version tag
         env:
           RELEASE_REF: ${{ github.ref }}
-          RELEASE_TARGET: ${{ inputs.target }}
-        run: python scripts/check_release.py "$RELEASE_REF" --target "$RELEASE_TARGET"
+        run: python scripts/check_release.py "$RELEASE_REF"
 
   validate:
     name: Validate the release revision
@@ -46,13 +36,13 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   publish:
-    name: Publish to ${{ inputs.target }}
+    name: Publish to PyPI
     needs: [release-tag, validate]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
-      name: ${{ inputs.target }}
-      url: ${{ inputs.target == 'testpypi' && 'https://test.pypi.org/p/fastapi-cordis' || 'https://pypi.org/p/fastapi-cordis' }}
+      name: pypi
+      url: https://pypi.org/p/fastapi-cordis
     permissions:
       id-token: write
     steps:
@@ -64,5 +54,5 @@ jobs:
       - name: Upload with Trusted Publishing
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
-          repository-url: ${{ inputs.target == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
+          repository-url: https://upload.pypi.org/legacy/
           packages-dir: dist/
