@@ -110,10 +110,9 @@ or instructions implying an unpublished package is already available on PyPI.
 
 ## Prepare a release
 
-The manual `publish.yml` workflow defaults to TestPyPI, requires a
+The manual `publish.yml` workflow publishes to PyPI, requires a
 `v<project.version>` tag, and publishes only after its complete CI matrix passes.
-Publishing is a separate maintainer action. A TestPyPI release does not publish
-the package to the production PyPI index.
+Publishing is a separate maintainer action.
 
 Before a release, confirm the distribution name and version on the target index
 and review the repository and documentation URLs in project metadata.

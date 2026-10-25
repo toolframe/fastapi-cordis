@@ -74,14 +74,13 @@ Before a maintainer publishes:
 1. Create or choose the actual GitHub repository and push this source there.
    Enable GitHub Actions and permit the pinned actions. No owner name is hardcoded
    and no sibling repository variables or credentials are needed.
-2. Create GitHub environments named exactly `testpypi` and `pypi`. Restrict them to
-   release tags and configure maintainer approval as appropriate, especially for
-   `pypi`.
-3. Separately configure a GitHub Trusted Publisher on TestPyPI and on PyPI for
-   project name `fastapi-cordis`. Use the actual GitHub owner and repository name,
-   workflow filename `publish.yml`, and the corresponding environment name
-   (`testpypi` or `pypi`). If the project does not yet exist, use a pending
-   publisher and confirm that the package name is available. See the official
+2. Create a GitHub environment named exactly `pypi`. Restrict it to release tags
+   and configure maintainer approval as appropriate.
+3. Configure a GitHub Trusted Publisher on PyPI for project name `fastapi-cordis`.
+   Use the actual GitHub owner and repository name, workflow filename
+   `publish.yml`, and environment name `pypi`. If the project does not yet exist,
+   use a pending publisher and confirm that the package name is available. See the
+   official
    [new project publisher guide](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
    and [publishing guide](https://docs.pypi.org/trusted-publishers/using-a-publisher/).
    No API token secret is required.
@@ -97,13 +96,11 @@ unprefixed tags, and tags for any other version are rejected before validation.
 `python scripts/check_release.py refs/tags/v0.2.2` checks this guard locally.
 
 A maintainer creates and pushes the tag, then manually dispatches **Publish** on
-that tag. The `target` choice defaults to `testpypi`. For example, these commands
-run remote publishing after the external setup has been completed:
+that tag to publish to PyPI. For example, this command runs remote publishing
+after the external setup has been completed:
 
 ```sh
-gh workflow run publish.yml --ref v0.2.2 -f target=testpypi
-# After reviewing the TestPyPI result, a separate explicit production dispatch:
-gh workflow run publish.yml --ref v0.2.2 -f target=pypi
+gh workflow run publish.yml --ref v0.2.2
 ```
 
 The publish run checks out its exact event SHA, checks the version tag, and calls
@@ -111,12 +108,10 @@ the complete CI matrix at the same revision. Only after all cells pass does it
 download this run's validated Python 3.11 artifacts and upload them with the
 [PyPA publishing action](https://github.com/pypa/gh-action-pypi-publish). It does
 not rebuild in the publishing job or download artifacts from a different run.
-Only that final job receives `id-token: write`, with the selected GitHub
+Only that final job receives `id-token: write`, with the `pypi` GitHub
 environment, for Trusted Publishing and the action's attestations. Existing
 versions are not silently skipped. A tag push by itself does not run CI or
 publish; the manual publishing workflow runs validation for the selected tag.
 
-TestPyPI and PyPI are separate indexes. A successful TestPyPI upload does not
-configure or release to PyPI. TestPyPI may lack runtime dependencies, so any
-post-upload installation check should download this project's artifact from
-TestPyPI and install that file with dependencies from PyPI.
+After publication, verify a clean installation of the published version with
+its runtime dependencies from PyPI.
