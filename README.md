@@ -2,7 +2,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-banner-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme-banner-light.png">
-  <img src="docs/assets/readme-banner-light.png" alt="fastapi-cordis — Manage the lifecycle of Python plugin services in FastAPI and asyncio apps." width="720">
+  <img src="docs/assets/readme-banner-light.png" alt="fastapi-cordis - Manage the lifecycle of Python plugin services in FastAPI and asyncio apps." width="720">
 </picture>
 </p>
 
@@ -62,13 +62,13 @@ implementation does not run JavaScript Cordis plugins.
 
 ## Guides
 
-| I want to… | Start here |
+| I want to... | Start here |
 | --- | --- |
-| Define plugins and resources | [Plugins](docs/plugins.md) · [Services](docs/services.md) |
-| Handle lifecycle and events | [Lifecycle](docs/lifecycle.md) · [Events](docs/events.md) |
+| Define plugins and resources | [Plugins](docs/plugins.md) / [Services](docs/services.md) |
+| Handle lifecycle and events | [Lifecycle](docs/lifecycle.md) / [Events](docs/events.md) |
 | Integrate FastAPI | [HTTP and management](docs/fastapi.md) |
 | Run an asyncio example | [Reactive example](examples/reactive.py) |
-| Contribute or run checks | [Contributing](CONTRIBUTING.md) · [Verification](docs/ci.md) |
+| Contribute or run checks | [Contributing](CONTRIBUTING.md) / [Verification](docs/ci.md) |
 | Review version changes | [Changelog](CHANGELOG.md) |
 
 [Releases](https://github.com/toolframe/fastapi-cordis/releases)
