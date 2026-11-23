@@ -9,6 +9,7 @@
 # fastapi-cordis
 
 [![CI on main](https://github.com/toolframe/fastapi-cordis/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/toolframe/fastapi-cordis/actions/workflows/ci.yml?query=branch%3Amain)
+[![PyPI version](https://img.shields.io/pypi/v/fastapi-cordis.svg)](https://pypi.org/project/fastapi-cordis/)
 
 Manage the lifecycle of Python plugin services in FastAPI and asyncio apps.
 Declare dependencies; the runtime orders startup and waits for callers before cleanup.
